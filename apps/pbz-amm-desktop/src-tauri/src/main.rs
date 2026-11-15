@@ -1,7 +1,7 @@
 // Copyright 2026 PBZ-AMM Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 use pbz_amm_core::deployer::{InstallOptions, ModManager};
 use pbz_amm_core::error::{AmmError, ResponseStatus};

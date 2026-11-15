@@ -11,6 +11,7 @@ apps/*/src-tauri/gen/
 
 # Local runtime state & test sandboxes
 /Data/
+/Release/
 /.pbz-amm-dev/
 *.sav
 *.pak

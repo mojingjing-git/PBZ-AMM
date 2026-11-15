@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/pbz-amm-core",
     "crates/pbz-amm-cli",
+    "apps/pbz-amm-desktop/src-tauri",
 ]
 
 [workspace.package]

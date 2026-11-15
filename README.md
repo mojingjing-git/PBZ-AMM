@@ -1,10 +1,10 @@
 # PBZ-AMM · Auto Mod(e) Manager for *Phantom Blade Zero*
 
 > **《影之刃零》（Phantom Blade Zero）专属开源自动 Mod 管理器**  
-> **Rust 单核心驱动 · 独立 CLI + `--json` · 内置 MCP 服务 + Agent Skill · Tauri 暗色武侠桌面端（规划中）**  
+> **Rust 单核心驱动 · 独立 CLI + `--json` · 内置 MCP 服务 + Agent Skill · Tauri v2 暗色武侠桌面端**  
 > **开源协议**：Apache License 2.0
 
-`PBZ-AMM`（名字致敬经典的 `MAA` 反写）是一款专为《影之刃零》PC 版打造的现代开源 Mod 管理器。所有界面形态（命令行 CLI、AI Agent 的 Skill / 本地 MCP 服务、以及后续的 Tauri 桌面 GUI）均共享同一个净室原创的 Rust 核心引擎 `pbz-amm-core`。
+`PBZ-AMM`（名字致敬经典的 `MAA` 反写）是一款专为《影之刃零》PC 版打造的现代开源 Mod 管理器。所有界面形态（命令行 CLI、AI Agent 的 Skill / 本地 MCP 服务、以及 Tauri v2 桌面端 GUI）均共享同一个净室原创的 Rust 核心引擎 `pbz-amm-core` 与同一份本地数据仓库。
 
 ---
 
@@ -66,9 +66,31 @@ pbz-amm mcp serve
 
 ---
 
+## 快速上手（Tauri 桌面端 GUI）
+
+桌面端采用克制的暗色武侠视觉风格（玄墨底色、暗金边框、朱砂印记），与 CLI/MCP 实时共享同一 `Data` 目录与文件锁：
+
+- **五大功能视图**：
+  1. **剑匣 · 模组管理**：支持窗口全局拖入 `.zip/.7z/.rar/.pak` 或文件夹自动开启入匣预检弹窗、野生 Mod 扫描勾选接管、多配置方案（`纯净原版` / `默认配置` / 自定义）一键切换、单模组启停与旧版一键回退。
+  2. **玄机 · 前置与冲突**：实时感知 `UE4SS`、`Mods Menu (#149)`、`PBZModLoader (#113)`、`CPP Bypass (#520)`、`Outfit Framework (#903)` 及代理注入 DLL 槽位占用，展示文件与 `.pak/.utoc` 容器级冲突报告。
+  3. **藏经阁 · Nexus 工坊**：免登录检索《影之刃零》社区作品、查阅前置依赖、批量检查已装更新、一键拉取入匣（自动适配会员直连与免费账号 `nxm://` 协议）。
+  4. **残卷 · 存档时光机**：手动备注锁定快照、自动防损留底与二次确认安全回档。
+  5. **枢机 · 设置与 Agent**：绑定游戏目录、管理 Windows 系统凭据库中的 Nexus API Key、一键复制本地 MCP JSON 配置。
+
+```powershell
+# 构建前端静态资源并编译全工作区（生成 target\debug\pbz-amm.exe 与 pbz-amm-desktop.exe）
+cd apps/pbz-amm-desktop
+pnpm install
+pnpm run build
+cd ../..
+cargo build --workspace
+```
+
+---
+
 ## 仓库结构
 
 - `crates/pbz-amm-core`：统一核心引擎（游戏寻址、安全解压与分类器、Pak/IoStore 索引冲突引擎、硬链接与 Profile 事务部署器、存档快照环、Nexus 客户端）
 - `crates/pbz-amm-cli`：`pbz-amm` 独立命令行工具 + 内置 `stdio` MCP Server
+- `apps/pbz-amm-desktop`：Tauri v2 + React 19 克制暗色武侠风桌面端（直接链接 `pbz-amm-core`）
 - `skills/pbz-amm/SKILL.md`：面向 AI Agent 的标准任务编排技能说明
-- `apps/pbz-amm-desktop` *(Milestone 3)*：Tauri v2 克制暗色武侠风桌面端（直接复用 `pbz-amm-core`）

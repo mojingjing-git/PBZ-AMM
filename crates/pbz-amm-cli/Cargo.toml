@@ -1,0 +1,19 @@
+[package]
+name = "pbz-amm-cli"
+description = "CLI & built-in MCP server for PBZ-AMM (Phantom Blade Zero Auto Mod Manager)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "pbz-amm"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+pbz-amm-core = { path = "../pbz-amm-core" }
+serde.workspace = true
+serde_json.workspace = true

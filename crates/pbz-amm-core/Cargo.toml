@@ -1,0 +1,23 @@
+[package]
+name = "pbz-amm-core"
+description = "Core engine for PBZ-AMM (Phantom Blade Zero Auto Mod Manager): clean-room mod scanner, Pak/IoStore conflict inspector, hardlink profile deployer, save backup guard, and Nexus Mods client."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+chrono.workspace = true
+hex.workspace = true
+keyring.workspace = true
+repak.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sevenz-rust2.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+ureq.workspace = true
+walkdir.workspace = true
+winreg.workspace = true
+zip.workspace = true

@@ -6,9 +6,17 @@
 use pbz_amm_core::deployer::{InstallOptions, ModManager};
 use pbz_amm_core::error::{AmmError, ResponseStatus};
 use pbz_amm_core::nexus;
+use pbz_amm_core::telemetry::{
+    AgentActivityEvent, activity_log_path, read_recent_activity, resolve_default_data_dir,
+    resolve_sibling_cli_exe,
+};
 use serde::Serialize;
 use serde_json::{Value, json};
+use std::fs::File;
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::PathBuf;
+use std::time::Duration;
+use tauri::Emitter;
 
 #[derive(Serialize)]
 struct UiEnvelope {
@@ -50,27 +58,22 @@ impl UiEnvelope {
 }
 
 fn shared_data_dir() -> PathBuf {
-    if let Ok(env_dir) = std::env::var("PBZ_AMM_DATA_DIR")
-        && !env_dir.trim().is_empty()
-    {
-        return PathBuf::from(env_dir);
-    }
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join("Data")))
-        .unwrap_or_else(|| PathBuf::from("Data"))
+    resolve_default_data_dir()
 }
 
 fn sibling_cli_exe() -> PathBuf {
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(dir) = exe.parent()
-    {
-        let candidate = dir.join("pbz-amm.exe");
-        if candidate.is_file() {
-            return candidate;
-        }
-    }
-    PathBuf::from("pbz-amm.exe")
+    resolve_sibling_cli_exe()
+}
+
+#[tauri::command]
+async fn cmd_get_recent_activity() -> UiEnvelope {
+    tauri::async_runtime::spawn_blocking(|| {
+        let data_dir = shared_data_dir();
+        let events = read_recent_activity(&data_dir, 40);
+        UiEnvelope::from_result::<Vec<AgentActivityEvent>>(Ok(events))
+    })
+    .await
+    .unwrap_or_else(|e| UiEnvelope::from_result::<Value>(Err(AmmError::Other(e.to_string()))))
 }
 
 #[tauri::command]
@@ -491,10 +494,66 @@ async fn cmd_nexus_download_stage(mod_id: u32) -> UiEnvelope {
     .unwrap_or_else(|e| UiEnvelope::from_result::<Value>(Err(AmmError::Other(e.to_string()))))
 }
 
+fn spawn_activity_tailer(app_handle: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let data_dir = shared_data_dir();
+        let log_path = activity_log_path(&data_dir);
+        let state_path = data_dir.join("state.json");
+
+        let mut offset = std::fs::metadata(&log_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+        let mut last_state_mtime = std::fs::metadata(&state_path)
+            .and_then(|m| m.modified())
+            .ok();
+
+        loop {
+            std::thread::sleep(Duration::from_millis(160));
+
+            if let Ok(meta) = std::fs::metadata(&log_path) {
+                let len = meta.len();
+                if len < offset {
+                    // File was compacted/rotated
+                    offset = len;
+                } else if len > offset
+                    && let Ok(mut file) = File::open(&log_path)
+                    && file.seek(SeekFrom::Start(offset)).is_ok()
+                {
+                    let mut reader = BufReader::new(file);
+                    let mut line = String::new();
+                    while let Ok(bytes_read) = reader.read_line(&mut line) {
+                        if bytes_read == 0 {
+                            break;
+                        }
+                        offset += bytes_read as u64;
+                        if let Ok(evt) = serde_json::from_str::<AgentActivityEvent>(line.trim()) {
+                            let _ = app_handle.emit("amm://activity", evt);
+                        }
+                        line.clear();
+                    }
+                }
+            }
+
+            let cur_mtime = std::fs::metadata(&state_path)
+                .and_then(|m| m.modified())
+                .ok();
+            if cur_mtime.is_some() && cur_mtime != last_state_mtime {
+                last_state_mtime = cur_mtime;
+                let _ = app_handle.emit("amm://state-changed", ());
+            }
+        }
+    });
+}
+
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            spawn_activity_tailer(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             cmd_get_dashboard,
+            cmd_get_recent_activity,
             cmd_pick_game_dir,
             cmd_pick_mod_file,
             cmd_pick_mod_folder,

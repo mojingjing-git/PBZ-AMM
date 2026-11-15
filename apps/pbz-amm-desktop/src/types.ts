@@ -153,3 +153,22 @@ export interface NexusModSummary {
   category?: string | null;
   page_url: string;
 }
+
+export type ActivityPhase =
+  | "started"
+  | "succeeded"
+  | "needs_selection"
+  | "blocked"
+  | "failed";
+
+export interface AgentActivityEvent {
+  id: string;
+  timestamp: string;
+  actor: "cli" | "mcp" | "gui" | string;
+  phase: ActivityPhase;
+  action: string;
+  tab_hint?: "mods" | "diagnostics" | "nexus" | "backups" | "settings" | string | null;
+  target_selector?: string | null;
+  summary: string;
+  payload?: any;
+}

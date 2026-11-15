@@ -3,9 +3,11 @@
 
 //! Built-in stdio MCP (Model Context Protocol) JSON-RPC 2.0 server sharing `pbz-amm-core`.
 
+use crate::build_inspect_ui_payload;
 use pbz_amm_core::deployer::{InstallOptions, ModManager};
 use pbz_amm_core::error::AmmError;
 use pbz_amm_core::nexus;
+use pbz_amm_core::telemetry::{ActivityPhase, AgentActivityEvent, emit_activity};
 use serde_json::{Value, json};
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -303,15 +305,136 @@ fn dispatch_tool(
         }
     };
 
+    let (tab_hint, target_sel, start_msg) = match name {
+        "pbz_nexus_search" => {
+            let kw = args.get("keyword").and_then(|v| v.as_str()).unwrap_or("");
+            (
+                Some("nexus"),
+                Some("[data-agent-id='nexus-search-input']".to_string()),
+                format!("MCP 执卷检索藏经阁：「{kw}」"),
+            )
+        }
+        "pbz_status" => (
+            Some("diagnostics"),
+            Some("[data-agent-id='nav-diagnostics']".to_string()),
+            "MCP 巡检周天经脉与游戏目录".to_string(),
+        ),
+        "pbz_inspect" => (
+            Some("mods"),
+            Some("[data-agent-id='dropzone']".to_string()),
+            "MCP 拆封预检本地模组包".to_string(),
+        ),
+        "pbz_install" => (
+            Some("mods"),
+            Some("[data-agent-id='dropzone']".to_string()),
+            "MCP 驱动入匣投递模组".to_string(),
+        ),
+        "pbz_switch_profile" => {
+            let pid = args.get("profile_id").and_then(|v| v.as_str()).unwrap_or("default");
+            (
+                Some("mods"),
+                Some(format!("[data-agent-id='profile:{pid}']")),
+                format!("MCP 易换配置腰牌：「{pid}」"),
+            )
+        }
+        "pbz_rollback_mod" => {
+            let mid = args.get("mod_id").and_then(|v| v.as_str()).unwrap_or("");
+            (
+                Some("mods"),
+                Some(format!("[data-agent-id='mod-row:{mid}']")),
+                format!("MCP 回退模组上一版：「{mid}」"),
+            )
+        }
+        "pbz_backup_saves" => (
+            Some("backups"),
+            Some("[data-agent-id='btn-backup-create']".to_string()),
+            "MCP 封存 SaveGames 残卷快照".to_string(),
+        ),
+        _ => (None, None, format!("MCP 调用 {name}")),
+    };
+
+    emit_activity(
+        data_dir,
+        &AgentActivityEvent::new(
+            "mcp",
+            ActivityPhase::Started,
+            name,
+            tab_hint,
+            target_sel.as_deref(),
+            &start_msg,
+            Some(args.clone()),
+        ),
+    );
+
     match run() {
-        Ok(v) => v,
-        Err(AmmError::NeedsSelection(prompt)) => json!({
-            "status": "needs_selection",
-            "prompt": prompt,
-        }),
-        Err(err) => json!({
-            "status": err.status(),
-            "error": err.to_string(),
-        }),
+        Ok(v) => {
+            let extra = if name == "pbz_inspect" {
+                let p = PathBuf::from(args.get("path").and_then(|x| x.as_str()).unwrap_or_default());
+                json!({ "inspect": build_inspect_ui_payload(data_dir, &p, default_game_dir) })
+            } else if name == "pbz_nexus_search" {
+                json!({
+                    "keyword": args.get("keyword").and_then(|x| x.as_str()).unwrap_or(""),
+                    "results": v.get("results").cloned().unwrap_or_else(|| json!([])),
+                })
+            } else {
+                v.clone()
+            };
+            emit_activity(
+                data_dir,
+                &AgentActivityEvent::new(
+                    "mcp",
+                    ActivityPhase::Succeeded,
+                    name,
+                    tab_hint,
+                    target_sel.as_deref(),
+                    format!("{start_msg} · 已成"),
+                    Some(extra),
+                ),
+            );
+            v
+        }
+        Err(AmmError::NeedsSelection(prompt)) => {
+            let inspect_payload = if name == "pbz_install" {
+                let p = PathBuf::from(args.get("path").and_then(|x| x.as_str()).unwrap_or_default());
+                build_inspect_ui_payload(data_dir, &p, default_game_dir)
+                    .map(|insp| json!({ "inspect": insp }))
+            } else {
+                None
+            };
+            emit_activity(
+                data_dir,
+                &AgentActivityEvent::new(
+                    "mcp",
+                    ActivityPhase::NeedsSelection,
+                    name,
+                    tab_hint,
+                    target_sel.as_deref(),
+                    &prompt.reason,
+                    inspect_payload,
+                ),
+            );
+            json!({
+                "status": "needs_selection",
+                "prompt": prompt,
+            })
+        }
+        Err(err) => {
+            emit_activity(
+                data_dir,
+                &AgentActivityEvent::new(
+                    "mcp",
+                    ActivityPhase::Failed,
+                    name,
+                    tab_hint,
+                    target_sel.as_deref(),
+                    err.to_string(),
+                    None,
+                ),
+            );
+            json!({
+                "status": err.status(),
+                "error": err.to_string(),
+            })
+        }
     }
 }

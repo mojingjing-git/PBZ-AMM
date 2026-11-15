@@ -9,6 +9,7 @@ pub mod game;
 pub mod nexus;
 pub mod scanner;
 pub mod state;
+pub mod telemetry;
 
 #[cfg(test)]
 mod tests {

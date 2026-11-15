@@ -7,8 +7,11 @@ use clap::{Parser, Subcommand};
 use pbz_amm_core::deployer::{InstallOptions, ModManager};
 use pbz_amm_core::error::{AmmError, ResponseStatus};
 use pbz_amm_core::nexus::{self, NxmUri};
+use pbz_amm_core::telemetry::{
+    ActivityPhase, AgentActivityEvent, emit_activity, resolve_default_data_dir,
+};
 use serde::Serialize;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -186,10 +189,210 @@ struct JsonEnvelope<T: Serialize> {
 }
 
 fn default_data_dir() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join("Data")))
-        .unwrap_or_else(|| PathBuf::from("Data"))
+    resolve_default_data_dir()
+}
+
+pub(crate) fn build_inspect_ui_payload(
+    data_dir: &Path,
+    path: &Path,
+    game_override: Option<&Path>,
+) -> Option<Value> {
+    let mut mgr = ModManager::open(data_dir).ok()?;
+    let game = mgr.resolve_game(game_override).ok();
+    let (report, conflicts) = mgr.inspect_source(path, game.as_ref()).ok()?;
+    let mut conflict_texts = serde_json::Map::new();
+    for (k, v) in &conflicts {
+        conflict_texts.insert(k.clone(), json!(v.to_messages()));
+    }
+    Some(json!({
+        "source_path": path.display().to_string(),
+        "report": report,
+        "conflict_texts": conflict_texts,
+    }))
+}
+
+fn describe_cli_intent(cmd: &Commands) -> (&'static str, Option<&'static str>, Option<String>, String, Option<Value>) {
+    match cmd {
+        Commands::Status => (
+            "status",
+            Some("diagnostics"),
+            Some("[data-agent-id='nav-diagnostics']".to_string()),
+            "巡检周天经脉与游戏目录态势".to_string(),
+            None,
+        ),
+        Commands::Adopt { ids } => {
+            if ids.is_empty() {
+                (
+                    "adopt_scan",
+                    Some("mods"),
+                    Some("[data-agent-id='wild-adopt-panel']".to_string()),
+                    "探查游戏目录中散落的野生模组".to_string(),
+                    None,
+                )
+            } else {
+                (
+                    "adopt",
+                    Some("mods"),
+                    Some("[data-agent-id='btn-adopt-wild']".to_string()),
+                    format!("纳入枢机托管：{}", ids.join(", ")),
+                    None,
+                )
+            }
+        }
+        Commands::Inspect { path } => (
+            "inspect",
+            Some("mods"),
+            Some("[data-agent-id='dropzone']".to_string()),
+            format!("悬丝拆封预检：「{}」", path.file_name().and_then(|s| s.to_str()).unwrap_or("模组包")),
+            None,
+        ),
+        Commands::Install { path, select_variant, .. } => (
+            "install",
+            Some("mods"),
+            Some("[data-agent-id='dropzone']".to_string()),
+            match select_variant {
+                Some(v) => format!("入匣铸装「{}」（选定变体：{v}）", path.file_name().and_then(|s| s.to_str()).unwrap_or("模组")),
+                None => format!("入匣铸装「{}」", path.file_name().and_then(|s| s.to_str()).unwrap_or("模组")),
+            },
+            None,
+        ),
+        Commands::Enable { mod_id } => (
+            "enable",
+            Some("mods"),
+            Some(format!("[data-agent-id='mod-switch:{mod_id}']")),
+            format!("拨印启用模组：「{mod_id}」"),
+            Some(json!({ "mod_id": mod_id })),
+        ),
+        Commands::Disable { mod_id } => (
+            "disable",
+            Some("mods"),
+            Some(format!("[data-agent-id='mod-switch:{mod_id}']")),
+            format!("封匣停用模组：「{mod_id}」"),
+            Some(json!({ "mod_id": mod_id })),
+        ),
+        Commands::Rollback { mod_id } => (
+            "rollback",
+            Some("mods"),
+            Some(format!("[data-agent-id='mod-row:{mod_id}']")),
+            format!("逆转机括回退上一版：「{mod_id}」"),
+            Some(json!({ "mod_id": mod_id })),
+        ),
+        Commands::Remove { mod_id } => (
+            "remove",
+            Some("mods"),
+            Some(format!("[data-agent-id='mod-row:{mod_id}']")),
+            format!("移出剑匣卸载：「{mod_id}」"),
+            Some(json!({ "mod_id": mod_id })),
+        ),
+        Commands::Conflicts => (
+            "conflicts",
+            Some("diagnostics"),
+            Some("[data-agent-id='conflict-audit-card']".to_string()),
+            "审校 .pak / .utoc 容器资产冲突".to_string(),
+            None,
+        ),
+        Commands::Profile { action } => match action {
+            ProfileAction::List => (
+                "profile_list",
+                Some("mods"),
+                None,
+                "查阅腰牌配置名录".to_string(),
+                None,
+            ),
+            ProfileAction::Create { id, .. } => (
+                "profile_create",
+                Some("mods"),
+                Some("[data-agent-id='btn-new-profile']".to_string()),
+                format!("镌刻新配置腰牌：「{id}」"),
+                None,
+            ),
+            ProfileAction::Switch { id } => (
+                "profile_switch",
+                Some("mods"),
+                Some(format!("[data-agent-id='profile:{id}']")),
+                format!("易换腰牌配置至：「{id}」"),
+                Some(json!({ "profile_id": id })),
+            ),
+        },
+        Commands::Backup { action } => match action {
+            BackupAction::List => (
+                "backup_list",
+                Some("backups"),
+                Some("[data-agent-id='nav-backups']".to_string()),
+                "翻阅残卷存档快照名录".to_string(),
+                None,
+            ),
+            BackupAction::Create { note, .. } => (
+                "backup_create",
+                Some("backups"),
+                Some("[data-agent-id='btn-backup-create']".to_string()),
+                match note {
+                    Some(n) => format!("封存 SaveGames 残卷快照：「{n}」"),
+                    None => "封存 SaveGames 残卷快照".to_string(),
+                },
+                None,
+            ),
+            BackupAction::Restore { backup_id, .. } => (
+                "backup_restore",
+                Some("backups"),
+                Some(format!("[data-agent-id='backup-row:{backup_id}']")),
+                format!("回溯残卷时光快照：「{backup_id}」"),
+                None,
+            ),
+        },
+        Commands::Nexus { action } => match action {
+            NexusAction::Search { keyword, .. } => {
+                let kw = keyword.clone().unwrap_or_default();
+                (
+                    "nexus_search",
+                    Some("nexus"),
+                    Some("[data-agent-id='nexus-search-input']".to_string()),
+                    if kw.is_empty() {
+                        "披阅藏经阁热门模组榜单".to_string()
+                    } else {
+                        format!("执卷检索藏经阁：「{kw}」")
+                    },
+                    Some(json!({ "keyword": kw })),
+                )
+            }
+            NexusAction::Info { mod_id } => (
+                "nexus_info",
+                Some("nexus"),
+                Some(format!("[data-agent-id='nexus-card:{mod_id}']")),
+                format!("调阅藏经阁卷宗 #{mod_id}"),
+                Some(json!({ "mod_id": mod_id })),
+            ),
+            NexusAction::CheckUpdates => (
+                "nexus_check_updates",
+                Some("nexus"),
+                Some("[data-agent-id='btn-nexus-updates']".to_string()),
+                "查验剑匣藏品远端更新".to_string(),
+                None,
+            ),
+            NexusAction::Auth { .. } => (
+                "nexus_auth",
+                Some("settings"),
+                Some("[data-agent-id='nexus-auth-card']".to_string()),
+                "核验藏经阁密令凭据".to_string(),
+                None,
+            ),
+            NexusAction::Download { mod_id, .. } => (
+                "nexus_download",
+                Some("nexus"),
+                Some(format!("[data-agent-id='nexus-dl:{mod_id}']")),
+                format!("自藏经阁拉取卷宗 #{mod_id}"),
+                Some(json!({ "mod_id": mod_id })),
+            ),
+            NexusAction::HandleNxm { .. } => (
+                "nexus_nxm",
+                Some("mods"),
+                Some("[data-agent-id='dropzone']".to_string()),
+                "接引 nxm:// 网页唤起飞书入匣".to_string(),
+                None,
+            ),
+        },
+        Commands::Mcp { .. } => ("mcp", None, None, String::new(), None),
+    }
 }
 
 fn main() -> ExitCode {
@@ -208,8 +411,102 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
+    let (act_name, tab_hint, target_sel, start_summary, start_payload) =
+        describe_cli_intent(&cli.command);
+    emit_activity(
+        &data_dir,
+        &AgentActivityEvent::new(
+            "cli",
+            ActivityPhase::Started,
+            act_name,
+            tab_hint,
+            target_sel.as_deref(),
+            &start_summary,
+            start_payload,
+        ),
+    );
+
     match execute_cli(&cli, &data_dir, game_override) {
         Ok((human_msg, json_val)) => {
+            // Enrich UI live event payload so the GUI reflects search results, details, or inspect modal immediately!
+            let (done_sel, done_summary, ui_payload) = match &cli.command {
+                Commands::Inspect { path } => (
+                    target_sel.clone(),
+                    format!("预检就绪，已在界面展开入匣卷轴"),
+                    json!({
+                        "inspect": build_inspect_ui_payload(&data_dir, path, game_override)
+                    }),
+                ),
+                Commands::Install { .. } => {
+                    let mid = json_val
+                        .pointer("/installed/id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let mname = json_val
+                        .pointer("/installed/name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("模组");
+                    (
+                        if mid.is_empty() {
+                            target_sel.clone()
+                        } else {
+                            Some(format!("[data-agent-id='mod-row:{mid}']"))
+                        },
+                        format!("已铸装入匣：「{mname}」"),
+                        json!({ "installed_id": mid }),
+                    )
+                }
+                Commands::Nexus {
+                    action: NexusAction::Search { keyword, .. },
+                } => {
+                    let count = json_val
+                        .get("results")
+                        .and_then(|r| r.as_array())
+                        .map(|a| a.len())
+                        .unwrap_or(0);
+                    (
+                        Some("[data-agent-id='btn-nexus-search']".to_string()),
+                        format!("藏经阁检索毕，共录得 {count} 卷"),
+                        json!({
+                            "keyword": keyword.clone().unwrap_or_default(),
+                            "results": json_val.get("results").cloned().unwrap_or_else(|| json!([]))
+                        }),
+                    )
+                }
+                Commands::Nexus {
+                    action: NexusAction::Info { .. },
+                } => (
+                    target_sel.clone(),
+                    "已展开卷宗详录与前置脉络".to_string(),
+                    json!({ "details": json_val.clone() }),
+                ),
+                Commands::Nexus {
+                    action: NexusAction::CheckUpdates,
+                } => (
+                    target_sel.clone(),
+                    human_msg.clone(),
+                    json_val.clone(),
+                ),
+                _ => (
+                    target_sel.clone(),
+                    human_msg.lines().next().unwrap_or("操作完成").to_string(),
+                    json!({}),
+                ),
+            };
+
+            emit_activity(
+                &data_dir,
+                &AgentActivityEvent::new(
+                    "cli",
+                    ActivityPhase::Succeeded,
+                    act_name,
+                    tab_hint,
+                    done_sel.as_deref(),
+                    done_summary,
+                    Some(ui_payload),
+                ),
+            );
+
             if cli.json {
                 let env = JsonEnvelope {
                     status: ResponseStatus::Ok,
@@ -226,6 +523,48 @@ fn main() -> ExitCode {
         Err(err) => {
             let status = err.status();
             let code = status.exit_code() as u8;
+            let phase = match status {
+                ResponseStatus::NeedsSelection => ActivityPhase::NeedsSelection,
+                ResponseStatus::Blocked => ActivityPhase::Blocked,
+                _ => ActivityPhase::Failed,
+            };
+
+            // Option A: If `install` paused on NeedsSelection, attach full InspectPayload so GUI auto-opens InspectModal!
+            let err_payload = if matches!(status, ResponseStatus::NeedsSelection) {
+                if let Commands::Install {
+                    path,
+                    nexus_id,
+                    version,
+                    ..
+                } = &cli.command
+                {
+                    build_inspect_ui_payload(&data_dir, path, game_override).map(|insp| {
+                        json!({
+                            "inspect": insp,
+                            "nexus_id": nexus_id,
+                            "version": version,
+                        })
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            emit_activity(
+                &data_dir,
+                &AgentActivityEvent::new(
+                    "cli",
+                    phase,
+                    act_name,
+                    tab_hint,
+                    target_sel.as_deref(),
+                    err.to_string(),
+                    err_payload,
+                ),
+            );
+
             if cli.json {
                 let (sel, msg) = match err {
                     AmmError::NeedsSelection(p) => {

@@ -627,9 +627,19 @@ fn build_variant(
             .unwrap_or_default()
             .to_ascii_lowercase();
 
+        let is_script_mod_txt_cfg = matches!(
+            target,
+            DeployTarget::PbzModLoaderMods | DeployTarget::ModsMenuMods
+        ) && fname.ends_with(".txt")
+            && !matches!(
+                fname.as_str(),
+                "enabled.txt" | "mods.txt" | "load_order.txt" | "licenses.txt" | "license.txt"
+            );
+
         let is_user_config = fname == "config.lua"
             || fname == "config.json"
             || fname == "settings.json"
+            || is_script_mod_txt_cfg
             || (fname.ends_with(".ini") && fname != "mods.ini");
 
         // Inspect .pak & .utoc headers for asset/chunk conflict indexing
@@ -685,6 +695,17 @@ fn build_variant(
             if sub.eq_ignore_ascii_case("main.ts") || lower_rel.ends_with(".ts") {
                 pbz_loader_has_ts.insert(mod_folder.to_string());
             }
+        }
+
+        // Deduplicate identical `(target, target_rel)` entries within the same variant
+        // (e.g. PBZModLoader shipping identical `platform/steam/version.dll` and `platform/wegame/version.dll`)
+        if staged_files
+            .iter()
+            .any(|existing: &StagedFileEntry| {
+                existing.target == target && existing.target_rel.eq_ignore_ascii_case(&target_rel)
+            })
+        {
+            continue;
         }
 
         staged_files.push(StagedFileEntry {
@@ -824,6 +845,11 @@ fn classify_single_file(
         warnings.push(format!(
             "已忽略压缩包内自带的全局列表文件 `{joined}`，由管理器安全维护开关状态"
         ));
+        return None;
+    }
+
+    // Ignore optional manual fallback DLL folders shipped in loader archives (`alternative-entries/...`)
+    if lower_parts.first().is_some_and(|p| p == "alternative-entries") {
         return None;
     }
 

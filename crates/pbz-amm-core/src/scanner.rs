@@ -592,6 +592,24 @@ fn build_variant(
     let mut pbz_loader_has_ts: BTreeSet<String> = BTreeSet::new();
     let mut has_ue4ss_cpp_dll = false;
     let mut iostore_bases: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut shipped_disabled_ue4ss: BTreeSet<String> = BTreeSet::new();
+
+    // Respect `ModName : 0` entries in bundled `mods.txt` (e.g. `SplitScreenMod : 0`, `LineTraceMod : 0` in UE4SS releases)
+    for (_orig, inner_rel, abs_path) in items {
+        if inner_rel.to_ascii_lowercase().ends_with("mods.txt")
+            && let Ok(txt) = fs::read_to_string(abs_path)
+        {
+            for line in txt.lines() {
+                let trimmed = line.trim();
+                if !trimmed.starts_with(';')
+                    && let Some((lhs, rhs)) = trimmed.split_once(':')
+                    && rhs.trim() == "0"
+                {
+                    shipped_disabled_ue4ss.insert(lhs.trim().to_ascii_lowercase());
+                }
+            }
+        }
+    }
 
     for (orig_rel, inner_rel, abs_path) in items {
         let Some((target, target_rel, uncertain)) =
@@ -643,12 +661,16 @@ fn build_variant(
                 continue;
             }
             ue4ss_all_mods.insert(mod_folder.to_string());
+            let is_disabled_by_default =
+                shipped_disabled_ue4ss.contains(&mod_folder.to_ascii_lowercase());
             let sub_low = sub.to_ascii_lowercase();
-            if sub_low.starts_with("scripts/") && sub_low.ends_with(".lua") {
+            if sub_low.starts_with("scripts/") && sub_low.ends_with(".lua") && !is_disabled_by_default {
                 ue4ss_code_mods.insert(mod_folder.to_string());
             }
             if sub_low.starts_with("dlls/") && sub_low.ends_with(".dll") {
-                ue4ss_code_mods.insert(mod_folder.to_string());
+                if !is_disabled_by_default {
+                    ue4ss_code_mods.insert(mod_folder.to_string());
+                }
                 has_ue4ss_cpp_dll = true;
             }
         }
@@ -819,14 +841,20 @@ fn classify_single_file(
         return Some((DeployTarget::ExeFolder, sub_rel, uncertain));
     }
 
-    // 2. Explicit `ue4ss/Mods/<ModName>/...`
+    // 2. Explicit `ue4ss/...` (both `ue4ss/Mods/<ModName>/...` and core UE4SS runtime files like `ue4ss/UE4SS.dll`, `ue4ss/UE4SS-settings.ini`, `ue4ss/UE4SS_Signatures/*`)
     if let Some(u_idx) = lower_parts.iter().position(|p| p == "ue4ss")
-        && u_idx + 2 < parts.len()
-        && lower_parts[u_idx + 1] == "mods"
+        && u_idx + 1 < parts.len()
     {
+        if u_idx + 2 < parts.len() && lower_parts[u_idx + 1] == "mods" {
+            return Some((
+                DeployTarget::Ue4ssMods,
+                parts[u_idx + 2..].join("/"),
+                false,
+            ));
+        }
         return Some((
-            DeployTarget::Ue4ssMods,
-            parts[u_idx + 2..].join("/"),
+            DeployTarget::ExeFolder,
+            format!("ue4ss/{}", parts[u_idx + 1..].join("/")),
             false,
         ));
     }

@@ -568,6 +568,12 @@ impl ModManager {
             .deployed_files
             .iter()
             .map(|d| d.game_rel_path.replace('\\', "/").to_ascii_lowercase())
+            .chain(
+                self.state
+                    .managed_ue4ss_enabled_markers
+                    .iter()
+                    .map(|m| m.replace('\\', "/").to_ascii_lowercase()),
+            )
             .collect();
 
         let mut candidates = Vec::new();
@@ -1192,12 +1198,25 @@ fn sync_ue4ss_mods_txt(
     }
 
     for m in enabled_mods {
+        if m.eq_ignore_ascii_case("Keybinds") {
+            if keybinds_line.is_none() {
+                keybinds_line = Some("Keybinds : 1".to_string());
+            }
+            continue;
+        }
         if !seen.contains(&m.to_ascii_lowercase()) {
             out_lines.push(format!("{m} : 1"));
         }
     }
     if let Some(kb) = keybinds_line {
-        out_lines.push(kb);
+        let kb_flag = if enabled_mods.iter().any(|m| m.eq_ignore_ascii_case("Keybinds")) {
+            "Keybinds : 1".to_string()
+        } else if all_managed_mods.iter().any(|m| m.eq_ignore_ascii_case("Keybinds")) {
+            "Keybinds : 0".to_string()
+        } else {
+            kb
+        };
+        out_lines.push(kb_flag);
     }
 
     if mods_txt.is_file() || !enabled_mods.is_empty() {

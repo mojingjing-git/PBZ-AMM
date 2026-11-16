@@ -311,30 +311,30 @@ fn dispatch_tool(
             (
                 Some("nexus"),
                 Some("[data-agent-id='nexus-search-input']".to_string()),
-                format!("MCP 执卷检索藏经阁：「{kw}」"),
+                format!("MCP 搜索 Nexus 工坊：{kw}"),
             )
         }
         "pbz_status" => (
             Some("diagnostics"),
             Some("[data-agent-id='nav-diagnostics']".to_string()),
-            "MCP 巡检周天经脉与游戏目录".to_string(),
+            "MCP 检查游戏目录与前置框架".to_string(),
         ),
         "pbz_inspect" => (
             Some("mods"),
             Some("[data-agent-id='dropzone']".to_string()),
-            "MCP 拆封预检本地模组包".to_string(),
+            "MCP 预检本地 Mod 包".to_string(),
         ),
         "pbz_install" => (
             Some("mods"),
             Some("[data-agent-id='dropzone']".to_string()),
-            "MCP 驱动入匣投递模组".to_string(),
+            "MCP 安装本地 Mod".to_string(),
         ),
         "pbz_switch_profile" => {
             let pid = args.get("profile_id").and_then(|v| v.as_str()).unwrap_or("default");
             (
                 Some("mods"),
                 Some(format!("[data-agent-id='profile:{pid}']")),
-                format!("MCP 易换配置腰牌：「{pid}」"),
+                format!("MCP 切换配置方案：{pid}"),
             )
         }
         "pbz_rollback_mod" => {
@@ -342,13 +342,13 @@ fn dispatch_tool(
             (
                 Some("mods"),
                 Some(format!("[data-agent-id='mod-row:{mid}']")),
-                format!("MCP 回退模组上一版：「{mid}」"),
+                format!("MCP 回退 Mod 上一版本：{mid}"),
             )
         }
         "pbz_backup_saves" => (
             Some("backups"),
             Some("[data-agent-id='btn-backup-create']".to_string()),
-            "MCP 封存 SaveGames 残卷快照".to_string(),
+            "MCP 备份本地存档".to_string(),
         ),
         _ => (None, None, format!("MCP 调用 {name}")),
     };
@@ -387,7 +387,7 @@ fn dispatch_tool(
                     name,
                     tab_hint,
                     target_sel.as_deref(),
-                    format!("{start_msg} · 已成"),
+                    format!("{start_msg} · 完成"),
                     Some(extra),
                 ),
             );

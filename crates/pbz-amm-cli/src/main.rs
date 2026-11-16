@@ -217,7 +217,7 @@ fn describe_cli_intent(cmd: &Commands) -> (&'static str, Option<&'static str>, O
             "status",
             Some("diagnostics"),
             Some("[data-agent-id='nav-diagnostics']".to_string()),
-            "巡检周天经脉与游戏目录态势".to_string(),
+            "检查游戏目录与前置框架状态".to_string(),
             None,
         ),
         Commands::Adopt { ids } => {
@@ -226,7 +226,7 @@ fn describe_cli_intent(cmd: &Commands) -> (&'static str, Option<&'static str>, O
                     "adopt_scan",
                     Some("mods"),
                     Some("[data-agent-id='wild-adopt-panel']".to_string()),
-                    "探查游戏目录中散落的野生模组".to_string(),
+                    "扫描游戏目录中已有的手动安装 Mod".to_string(),
                     None,
                 )
             } else {
@@ -234,7 +234,7 @@ fn describe_cli_intent(cmd: &Commands) -> (&'static str, Option<&'static str>, O
                     "adopt",
                     Some("mods"),
                     Some("[data-agent-id='btn-adopt-wild']".to_string()),
-                    format!("纳入枢机托管：{}", ids.join(", ")),
+                    format!("接管已有 Mod：{}", ids.join(", ")),
                     None,
                 )
             }
@@ -243,7 +243,7 @@ fn describe_cli_intent(cmd: &Commands) -> (&'static str, Option<&'static str>, O
             "inspect",
             Some("mods"),
             Some("[data-agent-id='dropzone']".to_string()),
-            format!("悬丝拆封预检：「{}」", path.file_name().and_then(|s| s.to_str()).unwrap_or("模组包")),
+            format!("预检 Mod 包：{}", path.file_name().and_then(|s| s.to_str()).unwrap_or("本地文件")),
             None,
         ),
         Commands::Install { path, select_variant, .. } => (
@@ -251,8 +251,8 @@ fn describe_cli_intent(cmd: &Commands) -> (&'static str, Option<&'static str>, O
             Some("mods"),
             Some("[data-agent-id='dropzone']".to_string()),
             match select_variant {
-                Some(v) => format!("入匣铸装「{}」（选定变体：{v}）", path.file_name().and_then(|s| s.to_str()).unwrap_or("模组")),
-                None => format!("入匣铸装「{}」", path.file_name().and_then(|s| s.to_str()).unwrap_or("模组")),
+                Some(v) => format!("安装 Mod：{}（版本：{v}）", path.file_name().and_then(|s| s.to_str()).unwrap_or("本地文件")),
+                None => format!("安装 Mod：{}", path.file_name().and_then(|s| s.to_str()).unwrap_or("本地文件")),
             },
             None,
         ),
@@ -260,35 +260,35 @@ fn describe_cli_intent(cmd: &Commands) -> (&'static str, Option<&'static str>, O
             "enable",
             Some("mods"),
             Some(format!("[data-agent-id='mod-switch:{mod_id}']")),
-            format!("拨印启用模组：「{mod_id}」"),
+            format!("启用 Mod：{mod_id}"),
             Some(json!({ "mod_id": mod_id })),
         ),
         Commands::Disable { mod_id } => (
             "disable",
             Some("mods"),
             Some(format!("[data-agent-id='mod-switch:{mod_id}']")),
-            format!("封匣停用模组：「{mod_id}」"),
+            format!("停用 Mod：{mod_id}"),
             Some(json!({ "mod_id": mod_id })),
         ),
         Commands::Rollback { mod_id } => (
             "rollback",
             Some("mods"),
             Some(format!("[data-agent-id='mod-row:{mod_id}']")),
-            format!("逆转机括回退上一版：「{mod_id}」"),
+            format!("回退 Mod 至上一版本：{mod_id}"),
             Some(json!({ "mod_id": mod_id })),
         ),
         Commands::Remove { mod_id } => (
             "remove",
             Some("mods"),
             Some(format!("[data-agent-id='mod-row:{mod_id}']")),
-            format!("移出剑匣卸载：「{mod_id}」"),
+            format!("卸载 Mod：{mod_id}"),
             Some(json!({ "mod_id": mod_id })),
         ),
         Commands::Conflicts => (
             "conflicts",
             Some("diagnostics"),
             Some("[data-agent-id='conflict-audit-card']".to_string()),
-            "审校 .pak / .utoc 容器资产冲突".to_string(),
+            "检测文件与 .pak / .utoc 内部资产冲突".to_string(),
             None,
         ),
         Commands::Profile { action } => match action {
@@ -296,21 +296,21 @@ fn describe_cli_intent(cmd: &Commands) -> (&'static str, Option<&'static str>, O
                 "profile_list",
                 Some("mods"),
                 None,
-                "查阅腰牌配置名录".to_string(),
+                "读取配置方案列表".to_string(),
                 None,
             ),
             ProfileAction::Create { id, .. } => (
                 "profile_create",
                 Some("mods"),
                 Some("[data-agent-id='btn-new-profile']".to_string()),
-                format!("镌刻新配置腰牌：「{id}」"),
+                format!("新建配置方案：{id}"),
                 None,
             ),
             ProfileAction::Switch { id } => (
                 "profile_switch",
                 Some("mods"),
                 Some(format!("[data-agent-id='profile:{id}']")),
-                format!("易换腰牌配置至：「{id}」"),
+                format!("切换配置方案：{id}"),
                 Some(json!({ "profile_id": id })),
             ),
         },
@@ -319,7 +319,7 @@ fn describe_cli_intent(cmd: &Commands) -> (&'static str, Option<&'static str>, O
                 "backup_list",
                 Some("backups"),
                 Some("[data-agent-id='nav-backups']".to_string()),
-                "翻阅残卷存档快照名录".to_string(),
+                "查看本地存档备份列表".to_string(),
                 None,
             ),
             BackupAction::Create { note, .. } => (
@@ -327,8 +327,8 @@ fn describe_cli_intent(cmd: &Commands) -> (&'static str, Option<&'static str>, O
                 Some("backups"),
                 Some("[data-agent-id='btn-backup-create']".to_string()),
                 match note {
-                    Some(n) => format!("封存 SaveGames 残卷快照：「{n}」"),
-                    None => "封存 SaveGames 残卷快照".to_string(),
+                    Some(n) => format!("创建存档备份（{n}）"),
+                    None => "创建本地存档备份".to_string(),
                 },
                 None,
             ),
@@ -336,7 +336,7 @@ fn describe_cli_intent(cmd: &Commands) -> (&'static str, Option<&'static str>, O
                 "backup_restore",
                 Some("backups"),
                 Some(format!("[data-agent-id='backup-row:{backup_id}']")),
-                format!("回溯残卷时光快照：「{backup_id}」"),
+                format!("恢复存档备份：{backup_id}"),
                 None,
             ),
         },
@@ -348,9 +348,9 @@ fn describe_cli_intent(cmd: &Commands) -> (&'static str, Option<&'static str>, O
                     Some("nexus"),
                     Some("[data-agent-id='nexus-search-input']".to_string()),
                     if kw.is_empty() {
-                        "披阅藏经阁热门模组榜单".to_string()
+                        "获取 Nexus 热门 Mod 列表".to_string()
                     } else {
-                        format!("执卷检索藏经阁：「{kw}」")
+                        format!("搜索 Nexus 工坊：{kw}")
                     },
                     Some(json!({ "keyword": kw })),
                 )
@@ -359,35 +359,35 @@ fn describe_cli_intent(cmd: &Commands) -> (&'static str, Option<&'static str>, O
                 "nexus_info",
                 Some("nexus"),
                 Some(format!("[data-agent-id='nexus-card:{mod_id}']")),
-                format!("调阅藏经阁卷宗 #{mod_id}"),
+                format!("读取 Nexus Mod #{mod_id} 详情"),
                 Some(json!({ "mod_id": mod_id })),
             ),
             NexusAction::CheckUpdates => (
                 "nexus_check_updates",
                 Some("nexus"),
                 Some("[data-agent-id='btn-nexus-updates']".to_string()),
-                "查验剑匣藏品远端更新".to_string(),
+                "检查已装 Mod 更新".to_string(),
                 None,
             ),
             NexusAction::Auth { .. } => (
                 "nexus_auth",
                 Some("settings"),
                 Some("[data-agent-id='nexus-auth-card']".to_string()),
-                "核验藏经阁密令凭据".to_string(),
+                "更新 Nexus 账号认证设置".to_string(),
                 None,
             ),
             NexusAction::Download { mod_id, .. } => (
                 "nexus_download",
                 Some("nexus"),
                 Some(format!("[data-agent-id='nexus-dl:{mod_id}']")),
-                format!("自藏经阁拉取卷宗 #{mod_id}"),
+                format!("下载 Nexus Mod #{mod_id}"),
                 Some(json!({ "mod_id": mod_id })),
             ),
             NexusAction::HandleNxm { .. } => (
                 "nexus_nxm",
                 Some("mods"),
                 Some("[data-agent-id='dropzone']".to_string()),
-                "接引 nxm:// 网页唤起飞书入匣".to_string(),
+                "接收浏览器 nxm:// 下载链接".to_string(),
                 None,
             ),
         },
@@ -432,7 +432,7 @@ fn main() -> ExitCode {
             let (done_sel, done_summary, ui_payload) = match &cli.command {
                 Commands::Inspect { path } => (
                     target_sel.clone(),
-                    format!("预检就绪，已在界面展开入匣卷轴"),
+                    "预检完成，已同步至桌面端预检窗口".to_string(),
                     json!({
                         "inspect": build_inspect_ui_payload(&data_dir, path, game_override)
                     }),
@@ -445,14 +445,14 @@ fn main() -> ExitCode {
                     let mname = json_val
                         .pointer("/installed/name")
                         .and_then(|v| v.as_str())
-                        .unwrap_or("模组");
+                        .unwrap_or("Mod");
                     (
                         if mid.is_empty() {
                             target_sel.clone()
                         } else {
                             Some(format!("[data-agent-id='mod-row:{mid}']"))
                         },
-                        format!("已铸装入匣：「{mname}」"),
+                        format!("已安装：{mname}"),
                         json!({ "installed_id": mid }),
                     )
                 }
@@ -466,7 +466,7 @@ fn main() -> ExitCode {
                         .unwrap_or(0);
                     (
                         Some("[data-agent-id='btn-nexus-search']".to_string()),
-                        format!("藏经阁检索毕，共录得 {count} 卷"),
+                        format!("搜索完成，共找到 {count} 个 Mod"),
                         json!({
                             "keyword": keyword.clone().unwrap_or_default(),
                             "results": json_val.get("results").cloned().unwrap_or_else(|| json!([]))
@@ -477,7 +477,7 @@ fn main() -> ExitCode {
                     action: NexusAction::Info { .. },
                 } => (
                     target_sel.clone(),
-                    "已展开卷宗详录与前置脉络".to_string(),
+                    "已加载 Mod 详情与前置信息".to_string(),
                     json!({ "details": json_val.clone() }),
                 ),
                 Commands::Nexus {

@@ -117,7 +117,7 @@ export const LozengeSwitch: React.FC<LozengeSwitchProps> = ({
     aria-pressed={checked}
   >
     <span className="lozenge-groove" />
-    <span className="lozenge-label">{checked ? "佩" : "封"}</span>
+    <span className="lozenge-label">{checked ? "开" : "关"}</span>
     <span className="lozenge-diamond">
       <span className="lozenge-inner-dot" />
     </span>

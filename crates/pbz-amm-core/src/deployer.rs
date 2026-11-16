@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 const UE4SS_BUILTIN_MODS: &[&str] = &[
+    "bpml_genericfunctions",
     "bpmodloadermod",
     "bplogicmodloader",
     "cheatmanagerenablermod",
@@ -623,6 +624,14 @@ impl ModManager {
             }
         }
 
+        // Subfolders already deployed by a managed Mod stay owned by that Mod even if runtime logs/caches are written inside them
+        let mut managed_subfolders: BTreeSet<(DeployTarget, String)> = BTreeSet::new();
+        for d in &self.state.deployed_files {
+            if let Some((top, _)) = d.target_rel.replace('\\', "/").split_once('/') {
+                managed_subfolders.insert((d.target, top.to_ascii_lowercase()));
+            }
+        }
+
         // 2. Scan folder-based script mods (`ue4ss/Mods`, `PBZModLoader/mods`, `PBZModsMenu/Mods`)
         for (dir, target, filter_builtins) in [
             (&game.ue4ss_mods_dir, DeployTarget::Ue4ssMods, true),
@@ -638,9 +647,11 @@ impl ModManager {
                     continue;
                 }
                 let folder_name = sub.file_name().to_string_lossy().to_string();
-                if filter_builtins
-                    && UE4SS_BUILTIN_MODS.contains(&folder_name.to_ascii_lowercase().as_str())
-                {
+                let folder_low = folder_name.to_ascii_lowercase();
+                if filter_builtins && UE4SS_BUILTIN_MODS.contains(&folder_low.as_str()) {
+                    continue;
+                }
+                if managed_subfolders.contains(&(target, folder_low)) {
                     continue;
                 }
                 let mut rels = Vec::new();

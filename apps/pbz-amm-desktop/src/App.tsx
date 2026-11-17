@@ -99,6 +99,7 @@ export default function App() {
   const [confirmRestoreId, setConfirmRestoreId] = useState<string | null>(null);
 
   const [nexusAccount, setNexusAccount] = useState<NexusAccountInfo | null>(null);
+  const [useEmbeddedBrowser, setUseEmbeddedBrowser] = useState(false);
   const [copiedMcp, setCopiedMcp] = useState(false);
 
   // 1 + A: Clean Live Agent Sync State
@@ -448,12 +449,15 @@ export default function App() {
 
   const handleOpenUrl = useCallback(
     async (url: string) => {
-      const env = await invoke<UiEnvelope>("cmd_open_url", { url });
+      const env = await invoke<UiEnvelope>("cmd_open_url", {
+        url,
+        inAppBrowser: useEmbeddedBrowser,
+      });
       if (env.status !== "ok") {
         notify(env.error ?? "打开浏览器失败", true);
       }
     },
-    [notify]
+    [notify, useEmbeddedBrowser]
   );
 
   const handleBindNexusKey = useCallback(
@@ -530,18 +534,28 @@ export default function App() {
       const env = await invoke<
         UiEnvelope<{
           awaiting_browser?: boolean;
+          mode?: string;
+          watch_dir?: string;
           url?: string;
           downloaded_path?: string;
           nexus_mod_id?: number;
           version?: string;
         }>
-      >("cmd_nexus_download_stage", { modId });
+      >("cmd_nexus_download_stage", { modId, inAppBrowser: useEmbeddedBrowser });
       if (env.status === "ok" && env.data) {
         if (env.data.awaiting_browser) {
-          setBrowserConfirmHint(
-            `已打开内置 Nexus 浏览窗（#${modId}）：请在该小窗内点击「Slow Download（慢速下载）」，完成后小窗会自动关闭并弹出安装预检。`
-          );
-          notify("请在弹出的内置浏览窗点击 Slow Download");
+          if (env.data.mode === "embedded") {
+            setBrowserConfirmHint(
+              `已打开内置 Nexus 浏览窗（#${modId}）：请在该小窗内点击「Slow Download（慢速下载）」，完成后小窗会自动关闭并弹出安装预检。`
+            );
+            notify("请在弹出的内置浏览窗点击 Slow Download");
+          } else {
+            const wdir = env.data.watch_dir ? `（已自动监听 ${env.data.watch_dir}）` : "";
+            setBrowserConfirmHint(
+              `已用你的日常浏览器打开 #${modId} 下载页（直接复用已登录状态，无需二次登录）${wdir}：点网页上的「Manual Download / Mod Manager → Slow Download」后，软件会自动抓取压缩包并弹出安装预检！`
+            );
+            notify("已在默认浏览器打开，点完 Slow Download 会自动弹出预检");
+          }
         } else if (env.data.downloaded_path) {
           notify("下载完成，正在打开安装预检...");
           await inspectPath(env.data.downloaded_path, env.data.nexus_mod_id, env.data.version);
@@ -1094,6 +1108,8 @@ export default function App() {
                 account={nexusAccount}
                 busy={busy}
                 compactWhenBound
+                useEmbeddedBrowser={useEmbeddedBrowser}
+                onToggleEmbeddedBrowser={setUseEmbeddedBrowser}
                 onOpenUrl={handleOpenUrl}
                 onBindKey={handleBindNexusKey}
                 onRegisterNxm={handleRegisterNxm}
@@ -1422,6 +1438,8 @@ export default function App() {
                 nxmRegistered={dash?.nxm_registered ?? false}
                 account={nexusAccount}
                 busy={busy}
+                useEmbeddedBrowser={useEmbeddedBrowser}
+                onToggleEmbeddedBrowser={setUseEmbeddedBrowser}
                 onOpenUrl={handleOpenUrl}
                 onBindKey={handleBindNexusKey}
                 onRegisterNxm={handleRegisterNxm}

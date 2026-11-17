@@ -12,16 +12,19 @@ use pbz_amm_core::telemetry::{
 };
 use serde::Serialize;
 use serde_json::{Value, json};
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime};
 use tauri::webview::DownloadEvent;
 use tauri::{Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
 struct NexusBrowserState {
     pending_meta: Mutex<Option<(u32, String)>>,
+    watch_gen: AtomicU64,
 }
 
 #[derive(Serialize)]
@@ -632,15 +635,132 @@ fn open_nexus_browser_window(
     .map_err(|e| AmmError::Other(format!("调度内置浏览窗失败: {e}")))
 }
 
+fn spawn_downloads_watcher(
+    app: &tauri::AppHandle,
+    mod_id: u32,
+    version: String,
+    expected_file_name: String,
+) -> Option<PathBuf> {
+    let watch_dir = nexus::resolve_windows_downloads_dir()?;
+    let my_gen = app
+        .state::<NexusBrowserState>()
+        .watch_gen
+        .fetch_add(1, Ordering::SeqCst)
+        + 1;
+    let app_handle = app.clone();
+    let dir_clone = watch_dir.clone();
+
+    std::thread::spawn(move || {
+        let started_at = SystemTime::now();
+        let mut baseline_mtimes: HashMap<PathBuf, SystemTime> = HashMap::new();
+        if let Ok(rd) = std::fs::read_dir(&dir_clone) {
+            for ent in rd.flatten() {
+                let p = ent.path();
+                if let Ok(meta) = ent.metadata()
+                    && let Ok(mt) = meta.modified()
+                {
+                    baseline_mtimes.insert(p, mt);
+                }
+            }
+        }
+
+        let mut stable_sizes: HashMap<PathBuf, (u64, u8)> = HashMap::new();
+        let expected_lower = expected_file_name.to_ascii_lowercase();
+        let allowed_exts: HashSet<&'static str> = ["zip", "7z", "rar", "pak"].into_iter().collect();
+
+        for _ in 0..400 {
+            std::thread::sleep(Duration::from_millis(450));
+            if app_handle
+                .state::<NexusBrowserState>()
+                .watch_gen
+                .load(Ordering::SeqCst)
+                != my_gen
+            {
+                return;
+            }
+
+            let Ok(rd) = std::fs::read_dir(&dir_clone) else {
+                continue;
+            };
+            let mut candidates: Vec<(bool, PathBuf, u64)> = Vec::new();
+            for ent in rd.flatten() {
+                let path = ent.path();
+                if !path.is_file() {
+                    continue;
+                }
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_ascii_lowercase())
+                    .unwrap_or_default();
+                if !allowed_exts.contains(ext.as_str()) {
+                    continue;
+                }
+                let Ok(meta) = ent.metadata() else {
+                    continue;
+                };
+                let size = meta.len();
+                if size == 0 {
+                    continue;
+                }
+                let Ok(mt) = meta.modified() else {
+                    continue;
+                };
+                let is_new_or_updated = match baseline_mtimes.get(&path) {
+                    Some(prev) => mt > *prev,
+                    None => mt + Duration::from_secs(3) >= started_at,
+                };
+                if !is_new_or_updated {
+                    continue;
+                }
+                let fname_lower = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|s| s.to_ascii_lowercase())
+                    .unwrap_or_default();
+                let exact_match = !expected_lower.is_empty() && fname_lower == expected_lower;
+                candidates.push((exact_match, path, size));
+            }
+
+            candidates.sort_by(|a, b| b.0.cmp(&a.0));
+            if let Some((_, path, size)) = candidates.into_iter().next() {
+                let entry = stable_sizes.entry(path.clone()).or_insert((size, 0));
+                if entry.0 == size {
+                    entry.1 = entry.1.saturating_add(1);
+                } else {
+                    *entry = (size, 0);
+                }
+                if entry.1 >= 2 && File::open(&path).is_ok() {
+                    let _ = app_handle.emit(
+                        "amm://nexus-downloaded",
+                        json!({
+                            "path": path,
+                            "nexus_mod_id": mod_id,
+                            "version": version,
+                        }),
+                    );
+                    return;
+                }
+            }
+        }
+    });
+
+    Some(watch_dir)
+}
+
 #[tauri::command]
-async fn cmd_open_url(app: tauri::AppHandle, url: String) -> UiEnvelope {
+async fn cmd_open_url(
+    app: tauri::AppHandle,
+    url: String,
+    in_app_browser: Option<bool>,
+) -> UiEnvelope {
     let trimmed = url.trim().to_string();
     if !trimmed.starts_with("https://") && !trimmed.starts_with("http://") {
         return UiEnvelope::from_result::<Value>(Err(AmmError::Other(
             "仅允许打开 http(s) 网页链接".to_string(),
         )));
     }
-    if trimmed.contains("nexusmods.com") {
+    if in_app_browser.unwrap_or(false) && trimmed.contains("nexusmods.com") {
         let res = open_nexus_browser_window(&app, &trimmed, None)
             .map(|_| json!({ "opened_in_app": trimmed }));
         return UiEnvelope::from_result(res);
@@ -654,7 +774,11 @@ async fn cmd_open_url(app: tauri::AppHandle, url: String) -> UiEnvelope {
 }
 
 #[tauri::command]
-async fn cmd_nexus_download_stage(app: tauri::AppHandle, mod_id: u32) -> UiEnvelope {
+async fn cmd_nexus_download_stage(
+    app: tauri::AppHandle,
+    mod_id: u32,
+    in_app_browser: Option<bool>,
+) -> UiEnvelope {
     tauri::async_runtime::spawn_blocking(move || {
         let data_dir = shared_data_dir();
         let res = (|| -> Result<Value, AmmError> {
@@ -673,10 +797,39 @@ async fn cmd_nexus_download_stage(app: tauri::AppHandle, mod_id: u32) -> UiEnvel
                     "https://www.nexusmods.com/phantombladezero/mods/{mod_id}?tab=files&file_id={}&nmm=1",
                     chosen.file_id
                 );
-                open_nexus_browser_window(&app, &web_url, Some((mod_id, chosen.version.clone())))?;
+                if in_app_browser.unwrap_or(false) {
+                    open_nexus_browser_window(
+                        &app,
+                        &web_url,
+                        Some((mod_id, chosen.version.clone())),
+                    )?;
+                    return Ok(json!({
+                        "awaiting_browser": true,
+                        "mode": "embedded",
+                        "url": web_url,
+                        "nexus_mod_id": mod_id,
+                        "version": chosen.version,
+                    }));
+                }
+
+                if !nexus::is_nxm_protocol_registered() {
+                    let _ = nexus::register_nxm_protocol(&sibling_cli_exe());
+                }
+                std::process::Command::new("rundll32")
+                    .args(["url.dll,FileProtocolHandler", &web_url])
+                    .spawn()
+                    .map_err(|e| AmmError::Other(format!("无法打开默认浏览器: {e}")))?;
+                let watch_dir = spawn_downloads_watcher(
+                    &app,
+                    mod_id,
+                    chosen.version.clone(),
+                    chosen.file_name.clone(),
+                );
                 return Ok(json!({
                     "awaiting_browser": true,
+                    "mode": "external",
                     "url": web_url,
+                    "watch_dir": watch_dir,
                     "nexus_mod_id": mod_id,
                     "version": chosen.version,
                 }));
@@ -755,6 +908,7 @@ fn main() {
     tauri::Builder::default()
         .manage(NexusBrowserState {
             pending_meta: Mutex::new(None),
+            watch_gen: AtomicU64::new(0),
         })
         .setup(|app| {
             spawn_activity_tailer(app.handle().clone());

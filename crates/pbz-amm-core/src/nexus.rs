@@ -175,6 +175,28 @@ pub fn is_nxm_protocol_registered() -> bool {
     lower.contains("pbz-amm") && lower.contains("handle-nxm")
 }
 
+/// Resolve the current user's Windows Downloads directory (supports custom relocated folders).
+pub fn resolve_windows_downloads_dir() -> Option<std::path::PathBuf> {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    if let Ok(folders) =
+        hkcu.open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders")
+        && let Ok(raw) = folders.get_value::<String, _>("{374DE290-123F-4565-9164-39C4925E467B}")
+    {
+        let expanded = if let Ok(profile) = std::env::var("USERPROFILE") {
+            raw.replace("%USERPROFILE%", &profile)
+        } else {
+            raw
+        };
+        let p = std::path::PathBuf::from(expanded);
+        if p.is_dir() {
+            return Some(p);
+        }
+    }
+    std::env::var_os("USERPROFILE")
+        .map(|u| std::path::PathBuf::from(u).join("Downloads"))
+        .filter(|p| p.is_dir())
+}
+
 /// Search Phantom Blade Zero mods on Nexus Mods via official GraphQL v2 API (works without API key).
 pub fn search_mods(keyword: Option<&str>, count: u32) -> Result<Vec<NexusModSummary>> {
     let capped = count.clamp(1, 50);

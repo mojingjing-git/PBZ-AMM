@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { CheckCircle2, ExternalLink, KeyRound, Link2, ShieldCheck } from "lucide-react";
-import { WuxiaPlaque } from "./WuxiaPrimitives";
+import { SealCheck, WuxiaPlaque } from "./WuxiaPrimitives";
 
 export interface NexusAccountInfo {
   name: string;
@@ -13,6 +13,8 @@ interface NexusAuthPanelProps {
   account: NexusAccountInfo | null;
   busy: boolean;
   compactWhenBound?: boolean;
+  useEmbeddedBrowser: boolean;
+  onToggleEmbeddedBrowser: (val: boolean) => void;
   agentId?: string;
   highlighted?: boolean;
   onOpenUrl: (url: string) => Promise<void>;
@@ -29,6 +31,8 @@ export const NexusAuthPanel: React.FC<NexusAuthPanelProps> = ({
   account,
   busy,
   compactWhenBound = false,
+  useEmbeddedBrowser,
+  onToggleEmbeddedBrowser,
   agentId,
   highlighted = false,
   onOpenUrl,
@@ -40,7 +44,7 @@ export const NexusAuthPanel: React.FC<NexusAuthPanelProps> = ({
   const [expanded, setExpanded] = useState(false);
 
   const accountBadge = account
-    ? `${account.name}（${account.is_premium ? "会员 · 支持静默直连" : "免费账号 · 支持 nxm:// 网页接管"}）`
+    ? `${account.name}（${account.is_premium ? "会员 · 支持静默直连" : "免费账号 · 支持网页点一下自动接管"}）`
     : hasKey
       ? "密钥已存入系统凭据库"
       : "未绑定账号";
@@ -59,7 +63,12 @@ export const NexusAuthPanel: React.FC<NexusAuthPanelProps> = ({
             {nxmRegistered ? "nxm:// 已就绪" : "nxm:// 未注册"}
           </span>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <SealCheck
+            checked={useEmbeddedBrowser}
+            onChange={onToggleEmbeddedBrowser}
+            label="内置小窗打开（不勾选则复用日常浏览器免重登）"
+          />
           {!nxmRegistered && (
             <button className="wuxia-btn gold" disabled={busy} onClick={() => void onRegisterNxm()}>
               <Link2 size={13} />
@@ -128,8 +137,7 @@ export const NexusAuthPanel: React.FC<NexusAuthPanelProps> = ({
           <strong>第 2 步：</strong>把密钥粘贴到下方并点击「验证并绑定」（仅加密存于 Windows 凭据管理器，绝不明文落盘）。
         </div>
         <div>
-          <strong>第 3 步（免费号说明）：</strong>绑定后在工坊点「下载预检」，软件会自动弹出<strong>内置轻量浏览窗</strong>（记住登录态、无需切外部浏览器）；你只需在窗内亲手点一下{" "}
-          <span className="mono">Slow Download</span>，小窗即会自动关闭并接管安装。
+          <strong>第 3 步（免费号说明）：</strong>默认直接用你<strong>日常已登录的浏览器</strong>打开下载页（不用重新登录！），软件同时会自动监听系统下载目录与 <span className="mono">nxm://</span>——你无论在网页点 <span className="mono">Manual Download</span> 还是 <span className="mono">Mod Manager Download → Slow Download</span>，下完都会自动弹出安装预检。
         </div>
       </div>
 

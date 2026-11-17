@@ -426,7 +426,8 @@ fn main() -> ExitCode {
         ),
     );
 
-    match execute_cli(&cli, &data_dir, game_override) {
+    let mut pending_inspect: Option<(std::path::PathBuf, Option<u32>, Option<String>)> = None;
+    match execute_cli(&cli, &data_dir, game_override, &mut pending_inspect) {
         Ok((human_msg, json_val)) => {
             // Enrich UI live event payload so the GUI reflects search results, details, or inspect modal immediately!
             let (done_sel, done_summary, ui_payload) = match &cli.command {
@@ -529,9 +530,17 @@ fn main() -> ExitCode {
                 _ => ActivityPhase::Failed,
             };
 
-            // Option A: If `install` paused on NeedsSelection, attach full InspectPayload so GUI auto-opens InspectModal!
+            // Option A: If `install` or `handle-nxm` paused on NeedsSelection, attach full InspectPayload so GUI auto-opens InspectModal!
             let err_payload = if matches!(status, ResponseStatus::NeedsSelection) {
-                if let Commands::Install {
+                if let Some((ref p, nid, ref ver)) = pending_inspect {
+                    build_inspect_ui_payload(&data_dir, p, game_override).map(|insp| {
+                        json!({
+                            "inspect": insp,
+                            "nexus_id": nid,
+                            "version": ver,
+                        })
+                    })
+                } else if let Commands::Install {
                     path,
                     nexus_id,
                     version,
@@ -603,6 +612,7 @@ fn execute_cli(
     cli: &Cli,
     data_dir: &Path,
     game_override: Option<&Path>,
+    pending_inspect: &mut Option<(std::path::PathBuf, Option<u32>, Option<String>)>,
 ) -> Result<(String, serde_json::Value), AmmError> {
     match &cli.command {
         Commands::Status => {
@@ -915,6 +925,8 @@ fn execute_cli(
                     parsed.expires.as_deref(),
                     &dest,
                 )?;
+                let version_opt = meta.map(|f| f.version);
+                *pending_inspect = Some((dest.clone(), Some(parsed.mod_id), version_opt.clone()));
                 let mut mgr = ModManager::open(data_dir)?;
                 let game = mgr.resolve_game(game_override)?;
                 let inst = mgr.install_source(
@@ -922,7 +934,7 @@ fn execute_cli(
                     &dest,
                     &InstallOptions {
                         nexus_mod_id: Some(parsed.mod_id),
-                        version_override: meta.map(|f| f.version),
+                        version_override: version_opt,
                         ..Default::default()
                     },
                 )?;

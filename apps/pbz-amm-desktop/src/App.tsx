@@ -10,7 +10,6 @@ import {
   ExternalLink,
   FolderOpen,
   FolderSearch,
-  KeyRound,
   PackagePlus,
   Plus,
   RefreshCw,
@@ -20,6 +19,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { InspectModal } from "./components/InspectModal";
+import { NexusAccountInfo, NexusAuthPanel } from "./components/NexusAuthPanel";
 import { PuppeteerOverlay } from "./components/PuppeteerOverlay";
 import {
   InkDivider,
@@ -92,13 +92,13 @@ export default function App() {
   const [nxLoadedOnce, setNxLoadedOnce] = useState(false);
   const [nxDetails, setNxDetails] = useState<NexusModDetailsData | null>(null);
   const [nxUpdates, setNxUpdates] = useState<UpdateEntry[]>([]);
+  const [browserConfirmHint, setBrowserConfirmHint] = useState<string | null>(null);
 
   const [backupNote, setBackupNote] = useState("");
   const [backupPin, setBackupPin] = useState(false);
   const [confirmRestoreId, setConfirmRestoreId] = useState<string | null>(null);
 
-  const [apiKeyInput, setApiKeyInput] = useState("");
-  const [accountLabel, setAccountLabel] = useState<string | null>(null);
+  const [nexusAccount, setNexusAccount] = useState<NexusAccountInfo | null>(null);
   const [copiedMcp, setCopiedMcp] = useState(false);
 
   // 1 + A: Clean Live Agent Sync State
@@ -307,6 +307,26 @@ export default function App() {
     if (tab === "nexus" && !nxLoadedOnce) void runNexusSearch("");
   }, [tab, nxLoadedOnce, runNexusSearch]);
 
+  useEffect(() => {
+    if (!dash) return;
+    if (!dash.has_nexus_key) {
+      setNexusAccount(null);
+      return;
+    }
+    if (nexusAccount) return;
+    invoke<UiEnvelope<{ account?: NexusAccountInfo }>>("cmd_nexus_auth", {
+      apiKey: null,
+      clear: false,
+      registerNxm: false,
+    })
+      .then((env) => {
+        if (env.status === "ok" && env.data?.account) {
+          setNexusAccount(env.data.account);
+        }
+      })
+      .catch(() => {});
+  }, [dash, nexusAccount]);
+
   const activeProfile = dash ? dash.profiles[dash.active_profile_id] ?? null : null;
   const enabledMap = useMemo(() => {
     const map = new Map<string, boolean>();
@@ -384,8 +404,86 @@ export default function App() {
     }
   };
 
-  const handleDownloadAndInspect = async (modId: number) => {
+  const handleOpenUrl = useCallback(
+    async (url: string) => {
+      const env = await invoke<UiEnvelope>("cmd_open_url", { url });
+      if (env.status !== "ok") {
+        notify(env.error ?? "打开浏览器失败", true);
+      }
+    },
+    [notify]
+  );
+
+  const handleBindNexusKey = useCallback(
+    async (rawKey: string): Promise<boolean> => {
+      const key = rawKey.trim();
+      if (!key) {
+        notify("请先粘贴有效的 Nexus Personal API Key", true);
+        return false;
+      }
+      setBusy(true);
+      try {
+        const env = await invoke<UiEnvelope<{ account?: NexusAccountInfo }>>("cmd_nexus_auth", {
+          apiKey: key,
+          clear: false,
+          registerNxm: true,
+        });
+        if (env.status === "ok" && env.data?.account) {
+          const acc = env.data.account;
+          setNexusAccount(acc);
+          notify(`已绑定 Nexus 账号「${acc.name}」（${acc.is_premium ? "会员" : "免费账号"}），并已开启 nxm:// 协议`);
+          await refreshDashboard();
+          return true;
+        }
+        notify(env.error ?? "密钥验证失败，请检查是否复制完整", true);
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [notify, refreshDashboard]
+  );
+
+  const handleRegisterNxm = useCallback(async () => {
     setBusy(true);
+    try {
+      const env = await invoke<UiEnvelope>("cmd_nexus_auth", {
+        apiKey: null,
+        clear: false,
+        registerNxm: true,
+      });
+      if (env.status === "ok") {
+        notify("已注册 nxm:// 浏览器接管协议");
+        await refreshDashboard();
+      } else {
+        notify(env.error ?? "注册失败", true);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [notify, refreshDashboard]);
+
+  const handleClearNexusKey = useCallback(async () => {
+    setBusy(true);
+    try {
+      await invoke("cmd_nexus_auth", { apiKey: null, clear: true, registerNxm: false });
+      setNexusAccount(null);
+      notify("已清除保存的 Nexus API Key");
+      await refreshDashboard();
+    } finally {
+      setBusy(false);
+    }
+  }, [notify, refreshDashboard]);
+
+  const handleDownloadAndInspect = async (modId: number) => {
+    if (!dash?.has_nexus_key) {
+      setTab("nexus");
+      setPulsedKey("[data-agent-id='nexus-auth-guide']");
+      notify("请先按上方第 1~2 步绑定 Nexus 账号（免费账号即可）", true);
+      return;
+    }
+    setBusy(true);
+    setBrowserConfirmHint(null);
     try {
       const env = await invoke<
         UiEnvelope<{ downloaded_path: string; nexus_mod_id: number; version: string }>
@@ -393,12 +491,14 @@ export default function App() {
       if (env.status === "ok" && env.data) {
         notify("下载完成，正在打开安装预检...");
         await inspectPath(env.data.downloaded_path, env.data.nexus_mod_id, env.data.version);
-      } else {
-        notify(
-          env.error ??
-            "免费账号不支持直接自动下载：请在「设置与接入」中注册 nxm:// 协议后前往网页点击下载",
-          true
+      } else if (env.status === "blocked") {
+        setBrowserConfirmHint(
+          `已在浏览器打开 #${modId} 的下载页面：请点击网页里的「Mod Manager Download → Slow Download」，浏览器确认后会自动回传给 PBZ-AMM 并开始安装预检。`
         );
+        notify("请在浏览器点击 Slow Download，随后会自动回传安装");
+        await refreshDashboard();
+      } else {
+        notify(env.error ?? "下载失败，可尝试点「打开网页」手动下载压缩包后拖入窗口", true);
       }
     } finally {
       setBusy(false);
@@ -931,6 +1031,31 @@ export default function App() {
           {/* TAB 3: NEXUS */}
           {tab === "nexus" && (
             <>
+              <NexusAuthPanel
+                agentId="nexus-auth-guide"
+                highlighted={pulsedKey === "[data-agent-id='nexus-auth-guide']"}
+                hasKey={dash?.has_nexus_key ?? false}
+                nxmRegistered={dash?.nxm_registered ?? false}
+                account={nexusAccount}
+                busy={busy}
+                compactWhenBound
+                onOpenUrl={handleOpenUrl}
+                onBindKey={handleBindNexusKey}
+                onRegisterNxm={handleRegisterNxm}
+                onClearKey={handleClearNexusKey}
+              />
+
+              {browserConfirmHint && (
+                <WuxiaPlaque variant="gold">
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                    <div style={{ fontSize: 12.5, color: "var(--bronze-bright)" }}>{browserConfirmHint}</div>
+                    <button className="wuxia-btn-mini" onClick={() => setBrowserConfirmHint(null)}>
+                      知道了
+                    </button>
+                  </div>
+                </WuxiaPlaque>
+              )}
+
               <WuxiaPlaque style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <input
                   data-agent-id="nexus-search-input"
@@ -992,6 +1117,14 @@ export default function App() {
                     </div>
                     <div style={{ display: "flex", gap: 8 }}>
                       <button
+                        className="wuxia-btn"
+                        disabled={busy}
+                        onClick={() => void handleOpenUrl(nxDetails.summary.page_url)}
+                      >
+                        <ExternalLink size={14} />
+                        打开网页
+                      </button>
+                      <button
                         className="wuxia-btn primary-crimson"
                         disabled={busy}
                         onClick={() => void handleDownloadAndInspect(nxDetails.summary.mod_id)}
@@ -1048,22 +1181,31 @@ export default function App() {
                       </p>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                      <button
-                        className="wuxia-btn"
-                        disabled={busy}
-                        onClick={async () => {
-                          setBusy(true);
-                          const env = await invoke<UiEnvelope<NexusModDetailsData>>(
-                            "cmd_nexus_mod_details",
-                            { modId: m.mod_id }
-                          );
-                          setBusy(false);
-                          if (env.status === "ok" && env.data) setNxDetails(env.data);
-                        }}
-                      >
-                        <ExternalLink size={13} />
-                        详情与前置
-                      </button>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          className="wuxia-btn"
+                          disabled={busy}
+                          onClick={async () => {
+                            setBusy(true);
+                            const env = await invoke<UiEnvelope<NexusModDetailsData>>(
+                              "cmd_nexus_mod_details",
+                              { modId: m.mod_id }
+                            );
+                            setBusy(false);
+                            if (env.status === "ok" && env.data) setNxDetails(env.data);
+                          }}
+                        >
+                          详情与前置
+                        </button>
+                        <button
+                          className="wuxia-btn"
+                          disabled={busy}
+                          onClick={() => void handleOpenUrl(m.page_url)}
+                          title="在浏览器打开 Nexus 主页"
+                        >
+                          <ExternalLink size={13} />
+                        </button>
+                      </div>
                       <button
                         data-agent-id={`nexus-dl:${m.mod_id}`}
                         className="wuxia-btn gold"
@@ -1218,90 +1360,18 @@ export default function App() {
                 )}
               </WuxiaPlaque>
 
-              <WuxiaPlaque agentId="nexus-auth-card">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <KeyRound size={15} color="#d9b477" />
-                    <span style={{ fontFamily: "var(--font-serif)", fontWeight: 700 }}>
-                      Nexus Mods 账号密钥与 nxm:// 网页下载协议
-                    </span>
-                  </div>
-                  <span className={`wuxia-seal-tag ${dash?.has_nexus_key ? "jade" : ""}`}>
-                    {accountLabel ?? (dash?.has_nexus_key ? "密钥已存入系统凭据库" : "未配置密钥")}
-                  </span>
-                </div>
-                <p style={{ fontSize: 12, color: "var(--parchment-dim)", marginBottom: 10 }}>
-                  API Key 仅加密保存在系统自带的 Windows 凭据管理器中，绝不明文落盘。会员支持直接自动下载；免费账号点「仅注册 nxm://」后可在网页端唤起本工具接收下载。
-                </p>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <input
-                    type="password"
-                    className="wuxia-input"
-                    style={{ flex: 1, minWidth: 220 }}
-                    placeholder="粘贴 Nexus Personal API Key..."
-                    value={apiKeyInput}
-                    onChange={(e) => setApiKeyInput(e.target.value)}
-                  />
-                  <button
-                    className="wuxia-btn gold"
-                    disabled={busy}
-                    onClick={async () => {
-                      if (!apiKeyInput.trim()) return notify("请先输入有效的 API Key", true);
-                      setBusy(true);
-                      const env = await invoke<
-                        UiEnvelope<{ account?: { name: string; is_premium: boolean } }>
-                      >("cmd_nexus_auth", {
-                        apiKey: apiKeyInput.trim(),
-                        clear: false,
-                        registerNxm: true,
-                      });
-                      setBusy(false);
-                      if (env.status === "ok" && env.data?.account) {
-                        setApiKeyInput("");
-                        const acc = env.data.account;
-                        setAccountLabel(`${acc.name} (${acc.is_premium ? "会员" : "免费账号"})`);
-                        notify(`账号验证成功（${acc.name}），已注册 nxm:// 协议`);
-                        await refreshDashboard();
-                      } else notify(env.error ?? "密钥验证失败", true);
-                    }}
-                  >
-                    验证保存并注册协议
-                  </button>
-                  <button
-                    className="wuxia-btn"
-                    disabled={busy}
-                    onClick={async () => {
-                      setBusy(true);
-                      const env = await invoke<UiEnvelope>("cmd_nexus_auth", {
-                        apiKey: null,
-                        clear: false,
-                        registerNxm: true,
-                      });
-                      setBusy(false);
-                      if (env.status === "ok") notify("已注册当前用户 nxm:// 下载协议");
-                      else notify(env.error ?? "注册失败", true);
-                    }}
-                  >
-                    仅注册 nxm://
-                  </button>
-                  {dash?.has_nexus_key && (
-                    <button
-                      className="wuxia-btn primary-crimson"
-                      disabled={busy}
-                      onClick={async () => {
-                        setBusy(true);
-                        await invoke("cmd_nexus_auth", { apiKey: null, clear: true, registerNxm: false });
-                        setBusy(false);
-                        setAccountLabel(null);
-                        notify("已清除保存的 API Key");
-                        await refreshDashboard();
-                      }}
-                    >
-                      清除密钥
-                    </button>
-                  )}
-                </div>
-              </WuxiaPlaque>
+              <NexusAuthPanel
+                agentId="nexus-auth-card"
+                highlighted={pulsedKey === "[data-agent-id='nexus-auth-card']"}
+                hasKey={dash?.has_nexus_key ?? false}
+                nxmRegistered={dash?.nxm_registered ?? false}
+                account={nexusAccount}
+                busy={busy}
+                onOpenUrl={handleOpenUrl}
+                onBindKey={handleBindNexusKey}
+                onRegisterNxm={handleRegisterNxm}
+                onClearKey={handleClearNexusKey}
+              />
 
               <WuxiaPlaque variant="gold">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>

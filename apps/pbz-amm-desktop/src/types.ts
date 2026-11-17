@@ -119,6 +119,7 @@ export interface DashboardData {
   conflict_messages: string[];
   save_backups: SaveBackupRecord[];
   has_nexus_key: boolean;
+  nxm_registered: boolean;
 }
 
 export interface ScannedVariant {

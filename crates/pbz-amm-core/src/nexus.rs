@@ -162,6 +162,19 @@ pub fn register_nxm_protocol(cli_exe_path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Check whether `HKCU\Software\Classes\nxm` is registered to `pbz-amm`.
+pub fn is_nxm_protocol_registered() -> bool {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let Ok(cmd_key) = hkcu.open_subkey(r"Software\Classes\nxm\shell\open\command") else {
+        return false;
+    };
+    let Ok(val) = cmd_key.get_value::<String, _>("") else {
+        return false;
+    };
+    let lower = val.to_ascii_lowercase();
+    lower.contains("pbz-amm") && lower.contains("handle-nxm")
+}
+
 /// Search Phantom Blade Zero mods on Nexus Mods via official GraphQL v2 API (works without API key).
 pub fn search_mods(keyword: Option<&str>, count: u32) -> Result<Vec<NexusModSummary>> {
     let capped = count.clamp(1, 50);
@@ -443,8 +456,8 @@ pub fn download_mod_file(
             let web_url = format!(
                 "https://www.nexusmods.com/{PBZ_NEXUS_DOMAIN}/mods/{mod_id}?tab=files&file_id={file_id}&nmm=1"
             );
-            let _ = std::process::Command::new("cmd")
-                .args(["/C", "start", "", &web_url])
+            let _ = std::process::Command::new("rundll32")
+                .args(["url.dll,FileProtocolHandler", &web_url])
                 .spawn();
             return Err(AmmError::NexusAwaitingBrowserConfirm { url: web_url });
         }

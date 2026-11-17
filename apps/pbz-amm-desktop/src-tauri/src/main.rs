@@ -100,6 +100,7 @@ async fn cmd_get_dashboard() -> UiEnvelope {
 
             let conflicts = mgr.check_active_conflicts();
             let has_nexus_key = nexus::load_api_key().is_ok();
+            let nxm_registered = nexus::is_nxm_protocol_registered();
 
             Ok(json!({
                 "data_dir": data_dir,
@@ -115,6 +116,7 @@ async fn cmd_get_dashboard() -> UiEnvelope {
                 "conflict_messages": conflicts.to_messages(),
                 "save_backups": mgr.state.save_backups,
                 "has_nexus_key": has_nexus_key,
+                "nxm_registered": nxm_registered,
             }))
         })();
         UiEnvelope::from_result(res)
@@ -464,11 +466,33 @@ async fn cmd_nexus_auth(
 }
 
 #[tauri::command]
+async fn cmd_open_url(url: String) -> UiEnvelope {
+    let trimmed = url.trim().to_string();
+    if !trimmed.starts_with("https://") && !trimmed.starts_with("http://") {
+        return UiEnvelope::from_result::<Value>(Err(AmmError::Other(
+            "仅允许打开 http(s) 网页链接".to_string(),
+        )));
+    }
+    let res = std::process::Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", &trimmed])
+        .spawn()
+        .map(|_| json!({ "opened": trimmed }))
+        .map_err(|e| AmmError::Other(format!("无法打开浏览器: {e}")));
+    UiEnvelope::from_result(res)
+}
+
+#[tauri::command]
 async fn cmd_nexus_download_stage(mod_id: u32) -> UiEnvelope {
     tauri::async_runtime::spawn_blocking(move || {
         let data_dir = shared_data_dir();
         let res = (|| -> Result<Value, AmmError> {
             let api_key = nexus::load_api_key()?;
+            if let Ok(acc) = nexus::validate_account(&api_key)
+                && !acc.is_premium
+                && !nexus::is_nxm_protocol_registered()
+            {
+                let _ = nexus::register_nxm_protocol(&sibling_cli_exe());
+            }
             let files = nexus::list_mod_files(&api_key, mod_id)?;
             let chosen = files
                 .iter()
@@ -573,6 +597,7 @@ fn main() {
             cmd_nexus_check_updates,
             cmd_nexus_auth,
             cmd_nexus_download_stage,
+            cmd_open_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PBZ-AMM desktop application");

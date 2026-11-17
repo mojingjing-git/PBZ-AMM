@@ -45,7 +45,7 @@ export const PuppeteerOverlay: React.FC<PuppeteerOverlayProps> = ({
       <div className={`activity-scroll-dock ${drawerOpen ? "open" : ""}`}>
         <div className="activity-dock-header" onClick={() => setDrawerOpen((v) => !v)}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Terminal size={14} color="#d9b477" />
+            <Terminal size={14} color="var(--icon-bronze)" />
             <span className="calligraphy-sub">CLI / Agent 操作记录</span>
             <span className="wuxia-seal-tag">{events.length}</span>
           </div>

@@ -10,12 +10,14 @@ import {
   ExternalLink,
   FolderOpen,
   FolderSearch,
+  Moon,
   PackagePlus,
   Plus,
   RefreshCw,
   RotateCcw,
   Search,
   Sparkles,
+  Sun,
   Trash2,
 } from "lucide-react";
 import { InspectModal } from "./components/InspectModal";
@@ -65,6 +67,13 @@ function formatStore(store: string | { custom: string } | undefined): string {
 }
 
 export default function App() {
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    try {
+      return localStorage.getItem("pbz_amm_theme") === "light" ? "light" : "dark";
+    } catch {
+      return "dark";
+    }
+  });
   const [tab, setTab] = useState<NavTab>("mods");
   const [dash, setDash] = useState<DashboardData | null>(null);
   const [busy, setBusy] = useState(false);
@@ -119,6 +128,15 @@ export default function App() {
   const notify = useCallback((text: string, isErr = false) => {
     setToast({ text, isErr });
   }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try {
+      localStorage.setItem("pbz_amm_theme", theme);
+    } catch {
+      // ignore storage failure
+    }
+  }, [theme]);
 
   useEffect(() => {
     if (!toast) return;
@@ -664,7 +682,7 @@ export default function App() {
 
         <div className="sidebar-foot">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ color: dash?.game ? "var(--bronze-bright)" : "#e88a8f" }}>
+            <span style={{ color: dash?.game ? "var(--bronze-bright)" : "var(--cinnabar-text)" }}>
               {dash?.game ? `◆ 已连接 (${formatStore(dash.game.store)})` : "◇ 未绑定游戏目录"}
             </span>
             <button
@@ -724,6 +742,26 @@ export default function App() {
               <Plus size={13} />
               新建配置
             </button>
+            <div className="theme-switch-pill" role="group" aria-label="界面主题切换">
+              <button
+                type="button"
+                className={`theme-pill-btn ${theme === "dark" ? "active" : ""}`}
+                onClick={() => setTheme("dark")}
+                title="切换为夜雨暗色武侠主题"
+              >
+                <Moon size={12} />
+                夜雨暗
+              </button>
+              <button
+                type="button"
+                className={`theme-pill-btn ${theme === "light" ? "active" : ""}`}
+                onClick={() => setTheme("light")}
+                title="切换为宣纸浅色水墨主题"
+              >
+                <Sun size={12} />
+                宣纸浅
+              </button>
+            </div>
           </div>
         </header>
 
@@ -732,7 +770,7 @@ export default function App() {
             <WuxiaPlaque variant="crimson">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
                 <div>
-                  <div style={{ fontWeight: 700, color: "#ffb0b4", marginBottom: 4 }}>
+                  <div style={{ fontWeight: 700, color: "var(--cinnabar-text)", marginBottom: 4 }}>
                     尚未定位《影之刃零》游戏目录
                   </div>
                   <div style={{ fontSize: 12.5, color: "var(--parchment-dim)" }}>
@@ -1087,7 +1125,7 @@ export default function App() {
                 ) : (
                   <ul style={{ paddingLeft: 18, fontSize: 12.5, display: "grid", gap: 5 }}>
                     {dash?.conflict_messages.map((msg, i) => (
-                      <li key={i} style={{ color: "#ffb0b4" }}>
+                      <li key={i} style={{ color: "var(--cinnabar-text)" }}>
                         {msg}
                       </li>
                     ))}
@@ -1363,7 +1401,7 @@ export default function App() {
 
                       {confirmRestoreId === b.id ? (
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 12, color: "#ffb0b4" }}>
+                          <span style={{ fontSize: 12, color: "var(--cinnabar-text)" }}>
                             确认覆盖当前存档？（请先退出游戏）
                           </span>
                           <button

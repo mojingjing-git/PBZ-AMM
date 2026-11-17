@@ -13,9 +13,12 @@
   --cinnabar: #b92d34;
   --cinnabar-bright: #e6535a;
   --cinnabar-dim: rgba(185, 45, 52, 0.22);
+  --cinnabar-text: #ffb0b4;
   --jade: #529379;
   --jade-bright: #8ad1b4;
   --jade-dim: rgba(82, 147, 121, 0.2);
+  --icon-bronze: #d9b477;
+  --icon-jade: #4ea885;
 
   --font-calligraphy: "STXingkai", "STKaiti", "KaiTi", "Noto Serif SC", serif;
   --font-kaiti: "STKaiti", "KaiTi", "STFangsong", "Noto Serif SC", serif;
@@ -1004,4 +1007,394 @@ body,
 .toast-scroll.err {
   border-color: var(--cinnabar-bright);
   border-left-color: var(--cinnabar-bright);
+}
+
+/* =========================================================
+   THEME SWITCHER PILL ("夜雨暗 | 宣纸浅")
+   ========================================================= */
+.theme-switch-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  gap: 2px;
+  background: rgba(14, 16, 22, 0.72);
+  border: 1px solid rgba(198, 158, 99, 0.34);
+  clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
+}
+
+.theme-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border: none;
+  background: transparent;
+  color: var(--parchment-dim);
+  font-family: var(--font-serif);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.theme-pill-btn:hover {
+  color: var(--parchment-main);
+}
+
+.theme-pill-btn.active {
+  background: linear-gradient(135deg, rgba(198, 158, 99, 0.28), rgba(159, 36, 42, 0.32));
+  color: #fff6e6;
+}
+
+/* =========================================================
+   LIGHT THEME: RICE PAPER & INK WASH ("宣纸素墨 · 江湖日间")
+   ========================================================= */
+:root[data-theme="light"] {
+  --ink-abyss: #f3ede1;
+  --ink-deep: rgba(248, 243, 234, 0.92);
+  --ink-plaque: rgba(254, 251, 245, 0.9);
+  --ink-plaque-hover: rgba(255, 254, 250, 0.98);
+  --parchment-main: #241f19;
+  --parchment-dim: #5c5042;
+  --parchment-muted: #847666;
+  --bronze: #996b2b;
+  --bronze-bright: #784c14;
+  --bronze-line: rgba(153, 107, 43, 0.3);
+  --bronze-glow: rgba(153, 107, 43, 0.12);
+  --cinnabar: #a6242b;
+  --cinnabar-bright: #9e1b22;
+  --cinnabar-dim: rgba(166, 36, 43, 0.1);
+  --cinnabar-text: #9e1b22;
+  --jade: #247558;
+  --jade-bright: #195f46;
+  --jade-dim: rgba(36, 117, 88, 0.12);
+  --icon-bronze: #8b5d1f;
+  --icon-jade: #1e6e51;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-track {
+  background: rgba(224, 214, 196, 0.55);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #b8986b, #8f6b3a);
+}
+
+[data-theme="light"] .wuxia-world {
+  background-image:
+    radial-gradient(ellipse at 78% 18%, rgba(206, 178, 134, 0.16), transparent 52%),
+    linear-gradient(
+      98deg,
+      rgba(246, 240, 229, 0.87) 0%,
+      rgba(245, 239, 227, 0.93) 32%,
+      rgba(243, 236, 223, 0.95) 100%
+    ),
+    url("/assets/bg-rain-temple.jpg");
+}
+
+[data-theme="light"] .wuxia-world::before {
+  opacity: 0.08;
+  background-image: repeating-linear-gradient(
+    103deg,
+    transparent 0px,
+    transparent 94px,
+    rgba(66, 54, 41, 0.35) 95px,
+    transparent 96px
+  );
+}
+
+[data-theme="light"] .chapter-sidebar {
+  background: linear-gradient(
+    180deg,
+    rgba(250, 245, 235, 0.94) 0%,
+    rgba(244, 237, 224, 0.96) 65%,
+    rgba(238, 230, 215, 0.98) 100%
+  );
+  border-right-color: rgba(153, 107, 43, 0.24);
+  box-shadow: 8px 0 28px rgba(56, 42, 22, 0.08);
+}
+
+[data-theme="light"] .crest-emblem {
+  filter: drop-shadow(0 3px 8px rgba(72, 52, 24, 0.28));
+}
+
+[data-theme="light"] .crest-title-cn {
+  background: linear-gradient(180deg, #2b2218 0%, #8a5b1e 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+[data-theme="light"] .chapter-btn:hover {
+  color: #1f1a15;
+}
+
+[data-theme="light"] .chapter-btn:hover::before {
+  opacity: 0.22;
+}
+
+[data-theme="light"] .chapter-btn.active {
+  color: #fff9ee;
+}
+
+[data-theme="light"] .chapter-btn.active .chapter-label-main {
+  text-shadow: 0 1px 4px rgba(84, 12, 16, 0.65);
+}
+
+[data-theme="light"] .chapter-btn.active .chapter-label-sub {
+  color: rgba(255, 246, 232, 0.88);
+}
+
+[data-theme="light"] .chapter-btn.active::after {
+  background: #f5dfb8;
+  box-shadow: 0 0 6px rgba(245, 223, 184, 0.7);
+}
+
+[data-theme="light"] .chapter-label-main {
+  text-shadow: none;
+}
+
+[data-theme="light"] .chapter-label-sub {
+  color: rgba(74, 62, 49, 0.74);
+}
+
+[data-theme="light"] .stage-header {
+  background: linear-gradient(180deg, rgba(250, 246, 238, 0.92) 0%, rgba(245, 239, 227, 0.72) 100%);
+  border-bottom-color: rgba(153, 107, 43, 0.22);
+}
+
+[data-theme="light"] .stage-title-group h1 {
+  color: #211c16;
+  text-shadow: none;
+}
+
+[data-theme="light"] .waist-plaque {
+  background: rgba(255, 252, 246, 0.92);
+  border-color: rgba(153, 107, 43, 0.3);
+  color: var(--parchment-dim);
+}
+
+[data-theme="light"] .waist-plaque.active {
+  color: #fffaf0;
+  background: linear-gradient(135deg, #b52b32, #7b4e20);
+  border-color: #8c5c1d;
+  box-shadow: 0 4px 14px rgba(166, 36, 43, 0.22);
+}
+
+[data-theme="light"] .wuxia-plaque {
+  background:
+    radial-gradient(circle at top right, rgba(153, 107, 43, 0.06), transparent 55%),
+    var(--ink-plaque);
+  border-color: rgba(153, 107, 43, 0.28);
+  box-shadow: 0 4px 18px rgba(58, 42, 20, 0.05);
+}
+
+[data-theme="light"] .wuxia-plaque.gold {
+  border-color: rgba(153, 107, 43, 0.5);
+  background: linear-gradient(135deg, rgba(206, 166, 104, 0.14), rgba(255, 252, 244, 0.94));
+}
+
+[data-theme="light"] .wuxia-plaque.crimson {
+  border-color: rgba(166, 36, 43, 0.45);
+  background: linear-gradient(135deg, rgba(166, 36, 43, 0.08), rgba(255, 248, 247, 0.95));
+}
+
+[data-theme="light"] .ritual-dropzone {
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(166, 36, 43, 0.08), transparent 60%),
+    linear-gradient(90deg, rgba(255, 252, 245, 0.94), rgba(248, 241, 229, 0.92));
+  border-color: rgba(153, 107, 43, 0.42);
+  box-shadow: 0 4px 18px rgba(58, 42, 20, 0.06);
+}
+
+[data-theme="light"] .wuxia-btn {
+  color: #26201a;
+  background: linear-gradient(180deg, #fffdf8, #f0e7d6);
+  border-color: rgba(153, 107, 43, 0.4);
+}
+
+[data-theme="light"] .wuxia-btn:hover:not(:disabled) {
+  color: #15110d;
+  border-color: #8c5c1d;
+  box-shadow: 0 2px 10px rgba(153, 107, 43, 0.2);
+}
+
+[data-theme="light"] .wuxia-btn.gold {
+  background: linear-gradient(135deg, rgba(212, 173, 109, 0.34), rgba(181, 134, 65, 0.22));
+  border-color: #9e6c28;
+  color: #6b4210;
+}
+
+[data-theme="light"] .wuxia-btn.primary-crimson {
+  background: linear-gradient(135deg, #b52a31, #87191f);
+  border-color: #701318;
+  color: #fff8f6;
+}
+
+[data-theme="light"] .wuxia-btn-mini {
+  color: #6e4512;
+  background: rgba(198, 158, 99, 0.2);
+  border-color: rgba(153, 107, 43, 0.45);
+}
+
+[data-theme="light"] .wuxia-input {
+  background: rgba(255, 253, 249, 0.96);
+  border-color: rgba(153, 107, 43, 0.36);
+  color: #241f19;
+}
+
+[data-theme="light"] .wuxia-seal-tag {
+  color: #54493c;
+  background: rgba(240, 232, 217, 0.9);
+  border-color: rgba(153, 107, 43, 0.28);
+}
+
+[data-theme="light"] .wuxia-seal-tag.gold {
+  color: #6f4512;
+  background: rgba(198, 158, 99, 0.2);
+  border-color: rgba(153, 107, 43, 0.5);
+}
+
+[data-theme="light"] .wuxia-seal-tag.jade {
+  color: #175c43;
+  background: rgba(36, 117, 88, 0.14);
+  border-color: rgba(36, 117, 88, 0.42);
+}
+
+[data-theme="light"] .wuxia-seal-tag.crimson {
+  color: #961a21;
+  background: rgba(166, 36, 43, 0.12);
+  border-color: rgba(166, 36, 43, 0.42);
+}
+
+[data-theme="light"] .mod-scroll-row {
+  background: linear-gradient(90deg, rgba(255, 252, 246, 0.94), rgba(249, 243, 232, 0.9));
+  border-color: rgba(153, 107, 43, 0.24);
+  box-shadow: 0 2px 10px rgba(58, 42, 20, 0.04);
+}
+
+[data-theme="light"] .mod-scroll-row:hover {
+  background: rgba(255, 254, 250, 0.98);
+  border-color: rgba(153, 107, 43, 0.5);
+}
+
+[data-theme="light"] .mod-scroll-row.disabled {
+  border-left-color: #b5aa99;
+}
+
+[data-theme="light"] .lozenge-groove {
+  background: #e6dcc9;
+  border-color: rgba(153, 107, 43, 0.42);
+}
+
+[data-theme="light"] .lozenge-switch.on .lozenge-groove {
+  background: linear-gradient(90deg, rgba(181, 42, 49, 0.72), rgba(176, 129, 62, 0.45));
+}
+
+[data-theme="light"] .lozenge-switch.on .lozenge-label {
+  color: #fffaf2;
+}
+
+[data-theme="light"] .lozenge-diamond {
+  background: #cfc3ae;
+  border-color: #7d6d58;
+}
+
+[data-theme="light"] .lozenge-switch.on .lozenge-diamond {
+  background: #b52a31;
+  border-color: #f4d6a0;
+  box-shadow: 0 0 8px rgba(181, 42, 49, 0.4);
+}
+
+[data-theme="light"] .lozenge-switch.on .lozenge-inner-dot {
+  background: #fff5e2;
+}
+
+[data-theme="light"] .seal-check-box {
+  background: rgba(255, 252, 246, 0.95);
+  border-color: #996b2b;
+}
+
+[data-theme="light"] .seal-check-wrap.checked .seal-check-box {
+  background: rgba(166, 36, 43, 0.16);
+  border-color: #a6242b;
+}
+
+[data-theme="light"] .seal-check-mark {
+  background: #a6242b;
+  box-shadow: none;
+}
+
+[data-theme="light"] .variant-option-row {
+  background: rgba(255, 252, 246, 0.92);
+  border-color: rgba(153, 107, 43, 0.28);
+}
+
+[data-theme="light"] .variant-option-row.picked {
+  background: linear-gradient(90deg, rgba(166, 36, 43, 0.11), rgba(198, 158, 99, 0.14));
+  border-color: #996b2b;
+}
+
+[data-theme="light"] .modal-backdrop {
+  background: rgba(48, 39, 28, 0.45);
+}
+
+[data-theme="light"] .modal-scroll-panel {
+  background: linear-gradient(180deg, #fcf9f2, #f5eee0);
+  border-color: #996b2b;
+  box-shadow: 0 24px 64px rgba(42, 30, 16, 0.28);
+}
+
+[data-theme="light"] .modal-header {
+  border-bottom-color: rgba(153, 107, 43, 0.28);
+}
+
+[data-theme="light"] .modal-header h2 {
+  color: #fff8ed;
+  text-shadow: 0 1px 6px rgba(96, 14, 18, 0.72);
+}
+
+[data-theme="light"] .manifest-code-box {
+  background: #f2eadc;
+  border-color: rgba(153, 107, 43, 0.28);
+  color: #3c3329;
+}
+
+[data-theme="light"] .puppeteer-banner-inner {
+  background: linear-gradient(90deg, #fcf8f0, #f7ece4, #fcf8f0);
+  border-color: #996b2b;
+  box-shadow: 0 10px 28px rgba(48, 34, 18, 0.2);
+}
+
+[data-theme="light"] .activity-scroll-dock {
+  background: rgba(252, 248, 240, 0.96);
+  border-color: rgba(153, 107, 43, 0.42);
+  box-shadow: 0 10px 30px rgba(48, 34, 18, 0.16);
+}
+
+[data-theme="light"] .activity-dock-header {
+  background: linear-gradient(90deg, rgba(166, 36, 43, 0.1), rgba(198, 158, 99, 0.14));
+}
+
+[data-theme="light"] .activity-item {
+  background: rgba(246, 239, 226, 0.9);
+}
+
+[data-theme="light"] .drag-veil {
+  background: radial-gradient(circle, rgba(166, 36, 43, 0.12), rgba(246, 240, 229, 0.94));
+}
+
+[data-theme="light"] .toast-scroll {
+  background: rgba(254, 251, 245, 0.98);
+  border-color: #996b2b;
+  color: #241f19;
+  box-shadow: 0 10px 28px rgba(48, 34, 18, 0.18);
+}
+
+[data-theme="light"] .theme-switch-pill {
+  background: rgba(244, 236, 222, 0.9);
+  border-color: rgba(153, 107, 43, 0.36);
+}
+
+[data-theme="light"] .theme-pill-btn.active {
+  background: linear-gradient(135deg, #b52a31, #8f5f24);
+  color: #fff9ee;
 }

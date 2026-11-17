@@ -57,7 +57,7 @@ export const NexusAuthPanel: React.FC<NexusAuthPanelProps> = ({
         style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <CheckCircle2 size={15} color="#4ea885" />
+          <CheckCircle2 size={15} color="var(--icon-jade)" />
           <span style={{ fontSize: 13, fontWeight: 600 }}>Nexus 账号：{accountBadge}</span>
           <span className={`wuxia-seal-tag ${nxmRegistered ? "jade" : "gold"}`}>
             {nxmRegistered ? "nxm:// 已就绪" : "nxm:// 未注册"}
@@ -96,7 +96,7 @@ export const NexusAuthPanel: React.FC<NexusAuthPanelProps> = ({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <KeyRound size={15} color="#d9b477" />
+          <KeyRound size={15} color="var(--icon-bronze)" />
           <span style={{ fontFamily: "var(--font-serif)", fontWeight: 700 }}>
             {hasKey
               ? "Nexus Mods 账号与 nxm:// 下载协议"

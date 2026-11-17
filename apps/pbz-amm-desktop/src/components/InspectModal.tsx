@@ -59,7 +59,7 @@ export const InspectModal: React.FC<InspectModalProps> = ({
             <div>
               <h2>安装预检 · {report.suggested_name}</h2>
               {triggeredByAgent && (
-                <div style={{ fontSize: 11.5, color: "#f0b4b7", marginTop: 2 }}>
+                <div style={{ fontSize: 11.5, color: "var(--cinnabar-text)", marginTop: 2 }}>
                   已同步 CLI / Agent 预检结果：可直接在此选择并完成安装，也可回到命令行继续确认
                 </div>
               )}
@@ -161,21 +161,21 @@ export const InspectModal: React.FC<InspectModalProps> = ({
 
               {activeVariant.warnings.map((w, i) => (
                 <WuxiaPlaque key={i} variant="gold" style={{ padding: "10px 14px", fontSize: 12.5 }}>
-                  <AlertTriangle size={14} color="#d9b477" style={{ verticalAlign: "-2px", marginRight: 6 }} />
+                  <AlertTriangle size={14} color="var(--icon-bronze)" style={{ verticalAlign: "-2px", marginRight: 6 }} />
                   {w}
                 </WuxiaPlaque>
               ))}
 
               {activeVariant.problems.map((p, i) => (
                 <WuxiaPlaque key={i} variant="crimson" style={{ padding: "10px 14px", fontSize: 12.5 }}>
-                  <ShieldAlert size={14} color="#e25a61" style={{ verticalAlign: "-2px", marginRight: 6 }} />
+                  <ShieldAlert size={14} color="var(--cinnabar-bright)" style={{ verticalAlign: "-2px", marginRight: 6 }} />
                   无法安装：{p}
                 </WuxiaPlaque>
               ))}
 
               {activeConflicts.length > 0 && (
                 <WuxiaPlaque variant="crimson">
-                  <div style={{ fontWeight: 600, color: "#ffb0b4", marginBottom: 6 }}>
+                  <div style={{ fontWeight: 600, color: "var(--cinnabar-text)", marginBottom: 6 }}>
                     检测到 {activeConflicts.length} 项文件或内部资产冲突：
                   </div>
                   <ul style={{ paddingLeft: 18, fontSize: 12, color: "var(--parchment-main)", marginBottom: 10 }}>
@@ -193,7 +193,7 @@ export const InspectModal: React.FC<InspectModalProps> = ({
 
               {uncertainFiles.length > 0 && (
                 <WuxiaPlaque variant="crimson">
-                  <div style={{ fontWeight: 600, color: "#ffb0b4", marginBottom: 6 }}>
+                  <div style={{ fontWeight: 600, color: "var(--cinnabar-text)", marginBottom: 6 }}>
                     包含未识别用途的 DLL 文件：
                   </div>
                   <div className="mono" style={{ marginBottom: 8 }}>

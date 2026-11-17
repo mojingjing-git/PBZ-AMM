@@ -10,6 +10,7 @@ import {
   ExternalLink,
   FolderOpen,
   FolderSearch,
+  Languages,
   Moon,
   PackagePlus,
   Plus,
@@ -30,6 +31,7 @@ import {
   SvgInkDefs,
   WuxiaPlaque,
 } from "./components/WuxiaPrimitives";
+import { formatProfileName, formatStoreName, MESSAGES, UiLang } from "./i18n";
 import {
   AgentActivityEvent,
   DashboardData,
@@ -60,12 +62,6 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-function formatStore(store: string | { custom: string } | undefined): string {
-  if (!store) return "未知平台";
-  if (typeof store === "string") return store.toUpperCase();
-  return store.custom;
-}
-
 export default function App() {
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     try {
@@ -74,6 +70,16 @@ export default function App() {
       return "dark";
     }
   });
+  const [lang, setLang] = useState<UiLang>(() => {
+    try {
+      return localStorage.getItem("pbz_amm_lang") === "en" ? "en" : "zh";
+    } catch {
+      return "zh";
+    }
+  });
+  const msg = MESSAGES[lang];
+  const msgRef = useRef(msg);
+  msgRef.current = msg;
   const [tab, setTab] = useState<NavTab>("mods");
   const [dash, setDash] = useState<DashboardData | null>(null);
   const [busy, setBusy] = useState(false);
@@ -165,6 +171,16 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    document.documentElement.lang = lang === "en" ? "en" : "zh-CN";
+    document.title = MESSAGES[lang].docTitle;
+    try {
+      localStorage.setItem("pbz_amm_lang", lang);
+    } catch {
+      // ignore storage failure
+    }
+  }, [lang]);
+
+  useEffect(() => {
     if (!toast) return;
     const t = window.setTimeout(() => setToast(null), 4500);
     return () => window.clearTimeout(t);
@@ -190,7 +206,7 @@ export default function App() {
         );
       }
     } catch (e) {
-      notify(`读取核心状态失败：${String(e)}`, true);
+      notify(msgRef.current.toasts.readDashFailed(String(e)), true);
     }
   }, [notify]);
 
@@ -301,7 +317,7 @@ export default function App() {
         if (env.status === "ok" && env.data) {
           setInspectData({ payload: env.data, nexusId, version });
         } else {
-          notify(env.error ?? "预检 Mod 包失败", true);
+          notify(env.error ?? msgRef.current.toasts.inspectFailed, true);
         }
       } finally {
         setBusy(false);
@@ -321,7 +337,7 @@ export default function App() {
       "amm://nexus-downloaded",
       (e) => {
         setBrowserConfirmHint(null);
-        notify("下载完成，正在打开安装预检...");
+        notify(msgRef.current.toasts.downloadedOpeningInspect);
         void inspectPath(
           e.payload.path,
           e.payload.nexus_mod_id ?? undefined,
@@ -337,11 +353,11 @@ export default function App() {
       "amm://nexus-browser-event",
       (e) => {
         if (e.payload.kind === "nxm_started") {
-          notify("已捕获下载链接，正在拉取压缩包...");
+          notify(msgRef.current.toasts.nxmCaptured);
         } else if (e.payload.kind === "http_started") {
-          notify("内置浏览窗已开始下载，完成后将自动接管...");
+          notify(msgRef.current.toasts.embeddedDlStarted);
         } else if (e.payload.kind === "error") {
-          notify(e.payload.message ?? "内置浏览窗下载失败", true);
+          notify(e.payload.message ?? msgRef.current.toasts.embeddedDlFailed, true);
         }
       }
     ).then((fn) => {
@@ -397,7 +413,7 @@ export default function App() {
           setNxResults(env.data);
           setNxLoadedOnce(true);
         } else {
-          notify(env.error ?? "Nexus 搜索失败", true);
+          notify(env.error ?? msgRef.current.toasts.nexusSearchFailed, true);
         }
       } finally {
         setBusy(false);
@@ -473,9 +489,9 @@ export default function App() {
     try {
       const env = await invoke<UiEnvelope>("cmd_bind_game_dir", { path: picked });
       if (env.status === "ok") {
-        notify("已绑定《影之刃零》安装目录");
+        notify(msgRef.current.toasts.gameDirBound);
         await refreshDashboard();
-      } else notify(env.error ?? "游戏目录校验未通过", true);
+      } else notify(env.error ?? msgRef.current.toasts.gameDirInvalid, true);
     } finally {
       setBusy(false);
     }
@@ -501,9 +517,9 @@ export default function App() {
       });
       if (env.status === "ok") {
         setInspectData(null);
-        notify("Mod 安装完成并已在当前配置中启用");
+        notify(msgRef.current.toasts.modInstalled);
         await refreshDashboard();
-      } else notify(env.error ?? "安装失败", true);
+      } else notify(env.error ?? msgRef.current.toasts.installFailed, true);
     } finally {
       setBusy(false);
     }
@@ -516,7 +532,7 @@ export default function App() {
         inAppBrowser: useEmbeddedBrowser,
       });
       if (env.status !== "ok") {
-        notify(env.error ?? "打开浏览器失败", true);
+        notify(env.error ?? msgRef.current.toasts.openBrowserFailed, true);
       }
     },
     [notify, useEmbeddedBrowser]
@@ -526,7 +542,7 @@ export default function App() {
     async (rawKey: string): Promise<boolean> => {
       const key = rawKey.trim();
       if (!key) {
-        notify("请先粘贴有效的 Nexus Personal API Key", true);
+        notify(msgRef.current.toasts.pasteNexusKey, true);
         return false;
       }
       setBusy(true);
@@ -539,11 +555,11 @@ export default function App() {
         if (env.status === "ok" && env.data?.account) {
           const acc = env.data.account;
           setNexusAccount(acc);
-          notify(`已绑定 Nexus 账号「${acc.name}」（${acc.is_premium ? "会员" : "免费账号"}），并已开启 nxm:// 协议`);
+          notify(msgRef.current.toasts.nexusBound(acc.name, acc.is_premium));
           await refreshDashboard();
           return true;
         }
-        notify(env.error ?? "密钥验证失败，请检查是否复制完整", true);
+        notify(env.error ?? msgRef.current.toasts.keyVerifyFailed, true);
         return false;
       } finally {
         setBusy(false);
@@ -561,10 +577,10 @@ export default function App() {
         registerNxm: true,
       });
       if (env.status === "ok") {
-        notify("已注册 nxm:// 浏览器接管协议");
+        notify(msgRef.current.toasts.nxmRegistered);
         await refreshDashboard();
       } else {
-        notify(env.error ?? "注册失败", true);
+        notify(env.error ?? msgRef.current.toasts.registerFailed, true);
       }
     } finally {
       setBusy(false);
@@ -576,7 +592,7 @@ export default function App() {
     try {
       await invoke("cmd_nexus_auth", { apiKey: null, clear: true, registerNxm: false });
       setNexusAccount(null);
-      notify("已清除保存的 Nexus API Key");
+      notify(msgRef.current.toasts.keyCleared);
       await refreshDashboard();
     } finally {
       setBusy(false);
@@ -587,7 +603,7 @@ export default function App() {
     if (!dash?.has_nexus_key) {
       setTab("nexus");
       setPulsedKey("[data-agent-id='nexus-auth-guide']");
-      notify("请先按上方第 1~2 步绑定 Nexus 账号（免费账号即可）", true);
+      notify(msgRef.current.toasts.needNexusKeyFirst, true);
       return;
     }
     setBusy(true);
@@ -607,29 +623,24 @@ export default function App() {
       if (env.status === "ok" && env.data) {
         if (env.data.awaiting_browser) {
           if (env.data.mode === "embedded") {
-            setBrowserConfirmHint(
-              `已打开内置 Nexus 浏览窗（#${modId}）：请在该小窗内点击「Slow Download（慢速下载）」，完成后小窗会自动关闭并弹出安装预检。`
-            );
-            notify("请在弹出的内置浏览窗点击 Slow Download");
+            setBrowserConfirmHint(msgRef.current.toasts.hintEmbedded(modId));
+            notify(msgRef.current.toasts.clickSlowInEmbedded);
           } else {
-            const wdir = env.data.watch_dir ? `（已自动监听 ${env.data.watch_dir}）` : "";
             setBrowserConfirmHint(
-              `已用你的日常浏览器打开 #${modId} 下载页（直接复用已登录状态，无需二次登录）${wdir}：点网页上的「Manual Download / Mod Manager → Slow Download」后，软件会自动抓取压缩包并弹出安装预检！`
+              msgRef.current.toasts.hintSystemBrowser(modId, env.data.watch_dir)
             );
-            notify("已在默认浏览器打开，点完 Slow Download 会自动弹出预检");
+            notify(msgRef.current.toasts.openedInSystemBrowser);
           }
         } else if (env.data.downloaded_path) {
-          notify("下载完成，正在打开安装预检...");
+          notify(msgRef.current.toasts.downloadedOpeningInspect);
           await inspectPath(env.data.downloaded_path, env.data.nexus_mod_id, env.data.version);
         }
       } else if (env.status === "blocked") {
-        setBrowserConfirmHint(
-          `请在内置浏览窗或浏览器点击「Slow Download（慢速下载）」，完成后会自动回传给 PBZ-AMM 并开始安装预检。`
-        );
-        notify("请点击网页里的 Slow Download 确认下载");
+        setBrowserConfirmHint(msgRef.current.toasts.hintBlocked);
+        notify(msgRef.current.toasts.clickSlowConfirm);
         await refreshDashboard();
       } else {
-        notify(env.error ?? "下载失败，可尝试点「打开网页」手动下载压缩包后拖入窗口", true);
+        notify(env.error ?? msgRef.current.toasts.downloadFailed, true);
       }
     } finally {
       setBusy(false);
@@ -658,28 +669,25 @@ export default function App() {
 
   const chapters: Array<{ id: NavTab; title: string; sub: string; badge?: number; warn?: boolean }> =
     [
-      { id: "mods", title: "已装 Mod", sub: "启用开关 · 安装与版本回退", badge: modCount },
+      { id: "mods", ...msg.tabs.mods, badge: modCount },
       {
         id: "diagnostics",
-        title: "前置与冲突",
-        sub: "框架检测 · 内部资产冲突排查",
+        ...msg.tabs.diagnostics,
         badge: conflictCount > 0 ? conflictCount : undefined,
         warn: conflictCount > 0,
       },
       {
         id: "nexus",
-        title: "Nexus 工坊",
-        sub: "在线搜索 · 检查已装更新",
+        ...msg.tabs.nexus,
         badge: nxUpdates.length > 0 ? nxUpdates.length : undefined,
         warn: nxUpdates.length > 0,
       },
       {
         id: "backups",
-        title: "存档备份",
-        sub: "自动快照 · 安全确认恢复",
+        ...msg.tabs.backups,
         badge: dash?.save_backups.length ?? 0,
       },
-      { id: "settings", title: "设置与接入", sub: "游戏目录 · Nexus 密钥 · MCP" },
+      { id: "settings", ...msg.tabs.settings },
     ];
 
   const activeChapter = chapters.find((c) => c.id === tab)!;
@@ -699,7 +707,7 @@ export default function App() {
           <img src="/assets/seal-emblem.png" alt="PBZ-AMM" className="crest-emblem" />
           <div>
             <div className="crest-title-cn">PBZ-AMM</div>
-            <div className="crest-sub">影之刃零 · Mod 管理器</div>
+            <div className="crest-sub">{msg.sidebar.appSub}</div>
           </div>
         </div>
 
@@ -727,19 +735,21 @@ export default function App() {
         <div className="sidebar-foot">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ color: dash?.game ? "var(--bronze-bright)" : "var(--cinnabar-text)" }}>
-              {dash?.game ? `◆ 已连接 (${formatStore(dash.game.store)})` : "◇ 未绑定游戏目录"}
+              {dash?.game
+                ? msg.sidebar.connected(formatStoreName(dash.game.store, lang))
+                : msg.sidebar.gameNotBound}
             </span>
             <button
               className="wuxia-btn-mini"
               onClick={() => void refreshDashboard()}
               disabled={busy}
-              title="刷新本地与 CLI 最新状态"
+              title={msg.sidebar.refreshTitle}
             >
               <RefreshCw size={11} />
             </button>
           </div>
           <div className="mono" style={{ fontSize: 10.5, opacity: 0.68 }}>
-            Apache-2.0 · CLI & GUI 共享核心
+            {msg.sidebar.footerTag}
           </div>
         </div>
       </aside>
@@ -754,29 +764,32 @@ export default function App() {
 
           <div className="waist-plaque-bar">
             <span style={{ fontSize: 12.5, color: "var(--parchment-dim)" }}>
-              当前配置：
+              {msg.header.currentProfile}
             </span>
-            {sortedProfiles.map((p) => (
-              <button
-                key={p.id}
-                data-agent-id={`profile:${p.id}`}
-                className={`waist-plaque ${dash?.active_profile_id === p.id ? "active" : ""}`}
-                disabled={busy || !dash?.game}
-                onClick={() => {
-                  if (dash?.active_profile_id === p.id) return;
-                  void withBusy(async () => {
-                    const env = await invoke<UiEnvelope>("cmd_switch_profile", { id: p.id });
-                    if (env.status === "ok") {
-                      notify(`已切换至「${p.display_name}」（游戏存档保持共用）`);
-                      await refreshDashboard();
-                    } else notify(env.error ?? "切换配置失败", true);
-                  });
-                }}
-                title={p.description || p.display_name}
-              >
-                {p.display_name}
-              </button>
-            ))}
+            {sortedProfiles.map((p) => {
+              const pName = formatProfileName(p.id, p.display_name, lang);
+              return (
+                <button
+                  key={p.id}
+                  data-agent-id={`profile:${p.id}`}
+                  className={`waist-plaque ${dash?.active_profile_id === p.id ? "active" : ""}`}
+                  disabled={busy || !dash?.game}
+                  onClick={() => {
+                    if (dash?.active_profile_id === p.id) return;
+                    void withBusy(async () => {
+                      const env = await invoke<UiEnvelope>("cmd_switch_profile", { id: p.id });
+                      if (env.status === "ok") {
+                        notify(msgRef.current.toasts.switchedProfile(pName));
+                        await refreshDashboard();
+                      } else notify(env.error ?? msgRef.current.toasts.switchProfileFailed, true);
+                    });
+                  }}
+                  title={lang === "en" ? pName : p.description || pName}
+                >
+                  {pName}
+                </button>
+              );
+            })}
             <button
               data-agent-id="btn-new-profile"
               className="wuxia-btn"
@@ -784,26 +797,47 @@ export default function App() {
               onClick={() => setShowNewProfile(true)}
             >
               <Plus size={13} />
-              新建配置
+              {msg.header.newProfile}
             </button>
-            <div className="theme-switch-pill" role="group" aria-label="界面主题切换">
+            <div className="theme-switch-pill" role="group" aria-label={msg.header.themeAria}>
               <button
                 type="button"
                 className={`theme-pill-btn ${theme === "dark" ? "active" : ""}`}
                 onClick={() => setTheme("dark")}
-                title="切换为夜雨暗色武侠主题"
+                title={msg.header.themeDarkTitle}
               >
                 <Moon size={12} />
-                夜雨暗
+                {msg.header.themeDark}
               </button>
               <button
                 type="button"
                 className={`theme-pill-btn ${theme === "light" ? "active" : ""}`}
                 onClick={() => setTheme("light")}
-                title="切换为宣纸浅色水墨主题"
+                title={msg.header.themeLightTitle}
               >
                 <Sun size={12} />
-                宣纸浅
+                {msg.header.themeLight}
+              </button>
+            </div>
+            <div className="theme-switch-pill" role="group" aria-label={msg.header.langAria}>
+              <button
+                type="button"
+                data-agent-id="btn-lang-zh"
+                className={`theme-pill-btn ${lang === "zh" ? "active" : ""}`}
+                onClick={() => setLang("zh")}
+                title={msg.header.langZhTitle}
+              >
+                <Languages size={12} />
+                中文
+              </button>
+              <button
+                type="button"
+                data-agent-id="btn-lang-en"
+                className={`theme-pill-btn ${lang === "en" ? "active" : ""}`}
+                onClick={() => setLang("en")}
+                title={msg.header.langEnTitle}
+              >
+                EN
               </button>
             </div>
           </div>
@@ -815,15 +849,15 @@ export default function App() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
                 <div>
                   <div style={{ fontWeight: 700, color: "var(--cinnabar-text)", marginBottom: 4 }}>
-                    尚未定位《影之刃零》游戏目录
+                    {msg.mods.gameMissingTitle}
                   </div>
                   <div style={{ fontSize: 12.5, color: "var(--parchment-dim)" }}>
-                    {dash.game_missing_reason ?? "请手动选择包含 ProjectPBZ 与 platform 文件夹的游戏安装根目录。"}
+                    {dash.game_missing_reason ?? msg.mods.gameMissingFallback}
                   </div>
                 </div>
                 <button className="wuxia-btn gold" onClick={() => void handlePickGameDir()}>
                   <FolderSearch size={15} />
-                  选择游戏目录
+                  {msg.mods.pickGameDir}
                 </button>
               </div>
             </WuxiaPlaque>
@@ -837,9 +871,11 @@ export default function App() {
                 className={`ritual-dropzone ${pulsedKey === "[data-agent-id='dropzone']" ? "agent-pulse" : ""}`}
               >
                 <div>
-                  <div className="ritual-dropzone-title">拖入压缩包或文件夹即可安装</div>
+                  <div className="ritual-dropzone-title">{msg.mods.dropzoneTitle}</div>
                   <div style={{ fontSize: 12.5, color: "var(--parchment-dim)" }}>
-                    支持 <span className="mono">.zip / .7z / .rar / .pak</span> 或解压目录；自动修正不同商店路径，遇到多选一版本或文件冲突时会自动停下供你确认。
+                    {msg.mods.dropzoneSubPrefix}
+                    <span className="mono">.zip / .7z / .rar / .pak</span>
+                    {msg.mods.dropzoneSubSuffix}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 10, flexShrink: 0 }}>
@@ -852,7 +888,7 @@ export default function App() {
                     }}
                   >
                     <PackagePlus size={15} />
-                    选择压缩包
+                    {msg.mods.pickArchive}
                   </button>
                   <button
                     className="wuxia-btn"
@@ -863,7 +899,7 @@ export default function App() {
                     }}
                   >
                     <FolderOpen size={15} />
-                    选择文件夹
+                    {msg.mods.pickFolder}
                   </button>
                 </div>
               </div>
@@ -873,10 +909,10 @@ export default function App() {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                     <div>
                       <span style={{ fontWeight: 700, color: "var(--bronze-bright)" }}>
-                        发现 {dash.unmanaged.length} 项手动安装的已有 Mod
+                        {msg.mods.unmanagedFound(dash.unmanaged.length)}
                       </span>
                       <span style={{ marginLeft: 10, fontSize: 12, color: "var(--parchment-dim)" }}>
-                        勾选后可纳入管理器统一开关与备份；未勾选的文件将保持原位不动。
+                        {msg.mods.unmanagedHint}
                       </span>
                     </div>
                     <button
@@ -888,13 +924,13 @@ export default function App() {
                           const env = await invoke<UiEnvelope>("cmd_adopt_mods", { ids: selectedWildIds });
                           if (env.status === "ok") {
                             setSelectedWildIds([]);
-                            notify("所选 Mod 已纳入管理");
+                            notify(msgRef.current.toasts.adoptedSuccess);
                             await refreshDashboard();
-                          } else notify(env.error ?? "纳入管理失败", true);
+                          } else notify(env.error ?? msgRef.current.toasts.adoptFailed, true);
                         })
                       }
                     >
-                      纳入管理 ({selectedWildIds.length})
+                      {msg.mods.adoptBtn(selectedWildIds.length)}
                     </button>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
@@ -926,13 +962,18 @@ export default function App() {
                 </WuxiaPlaque>
               )}
 
-              <InkDivider label={`共安装 ${modCount} 个 Mod · 当前配置已启用 ${Array.from(enabledMap.values()).filter(Boolean).length} 个`} />
+              <InkDivider
+                label={msg.mods.dividerSummary(
+                  modCount,
+                  Array.from(enabledMap.values()).filter(Boolean).length
+                )}
+              />
 
               <div style={{ display: "flex", justifyContent: "flex-end" }}>
                 <input
                   className="wuxia-input"
                   style={{ width: 280 }}
-                  placeholder="搜索 Mod 名称 / ID / 类型..."
+                  placeholder={msg.mods.filterPlaceholder}
                   value={modFilter}
                   onChange={(e) => setModFilter(e.target.value)}
                 />
@@ -948,7 +989,7 @@ export default function App() {
                     style={{ opacity: 0.42, marginBottom: 10 }}
                   />
                   <div style={{ fontSize: 14.5, color: "var(--parchment-dim)" }}>
-                    暂未安装任何 Mod。可将下载好的压缩包直接拖入窗口，或前往「Nexus 工坊」搜索下载。
+                    {msg.mods.emptyState}
                   </div>
                 </WuxiaPlaque>
               ) : (
@@ -973,6 +1014,8 @@ export default function App() {
                             agentId={`mod-switch:${mod.id}`}
                             checked={isOn}
                             disabled={busy}
+                            onLabel={msg.common.on}
+                            offLabel={msg.common.off}
                             onChange={() =>
                               void withBusy(async () => {
                                 const env = await invoke<UiEnvelope>("cmd_set_mod_enabled", {
@@ -980,10 +1023,10 @@ export default function App() {
                                   enabled: !isOn,
                                 });
                                 if (env.status === "ok") await refreshDashboard();
-                                else notify(env.error ?? "切换状态失败", true);
+                                else notify(env.error ?? msgRef.current.toasts.toggleStateFailed, true);
                               })
                             }
-                            title={isOn ? "点击在当前配置中停用" : "点击在当前配置中启用"}
+                            title={isOn ? msg.mods.toggleOffTitle : msg.mods.toggleOnTitle}
                           />
                           <div>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -1001,14 +1044,16 @@ export default function App() {
                               )}
                               {hasUpdate && (
                                 <span className="wuxia-seal-tag crimson">
-                                  可更新 v{mod.latest_remote_version}
+                                  {msg.mods.updateBadge(mod.latest_remote_version!)}
                                 </span>
                               )}
                             </div>
                             <div style={{ fontSize: 12, color: "var(--parchment-muted)", marginTop: 3 }}>
-                              变体：{mod.current.variant_name} · {mod.current.files.length} 个文件
-                              {mod.current.containers.length > 0 &&
-                                ` · ${mod.current.containers.length} 个 Pak/IoStore 容器`}
+                              {msg.mods.variantMeta(
+                                mod.current.variant_name,
+                                mod.current.files.length,
+                                mod.current.containers.length
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1024,14 +1069,14 @@ export default function App() {
                                     modId: mod.id,
                                   });
                                   if (env.status === "ok") {
-                                    notify(`已回退至上一版本 v${mod.previous!.version}`);
+                                    notify(msgRef.current.toasts.rollbackSuccess(mod.previous!.version));
                                     await refreshDashboard();
-                                  } else notify(env.error ?? "回退失败", true);
+                                  } else notify(env.error ?? msgRef.current.toasts.rollbackFailed, true);
                                 })
                               }
                             >
                               <RotateCcw size={13} />
-                              回退 v{mod.previous.version}
+                              {msg.mods.rollbackBtn(mod.previous.version)}
                             </button>
                           )}
                           <button
@@ -1044,12 +1089,12 @@ export default function App() {
                                   modId: mod.id,
                                 });
                                 if (env.status === "ok") {
-                                  notify(`已卸载：${mod.name}`);
+                                  notify(msgRef.current.toasts.removedMod(mod.name));
                                   await refreshDashboard();
-                                } else notify(env.error ?? "卸载失败", true);
+                                } else notify(env.error ?? msgRef.current.toasts.removeFailed, true);
                               })
                             }
-                            title="卸载此 Mod"
+                            title={msg.mods.removeTitle}
                           >
                             <Trash2 size={13} />
                           </button>
@@ -1066,79 +1111,53 @@ export default function App() {
           {tab === "diagnostics" && (
             <>
               <div className="grid-2">
-                {[
-                  {
-                    name: "UE4SS 脚本框架 (PBZ 专用版)",
-                    nxId: 13,
-                    ok: dash?.frameworks?.ue4ss ?? false,
-                    desc: "位于 platform/<store>/dwmapi.dll 及 ue4ss/Mods/，用于运行 Lua 与原生 C++ 功能 Mod。",
-                  },
-                  {
-                    name: "Mods Menu (游戏内菜单框架)",
-                    nxId: 149,
-                    ok: dash?.frameworks?.mods_menu ?? false,
-                    desc: "位于根目录 hid.dll 及 PBZModsMenu/Mods/，支持在游戏设置菜单或快捷键中直接开关 Mod。",
-                  },
-                  {
-                    name: "PBZModLoader (JS 脚本加载器)",
-                    nxId: 113,
-                    ok: dash?.frameworks?.pbz_mod_loader ?? false,
-                    desc: "位于 ProjectPBZ/PBZModLoader/mods/，注意 v2.0 起仅支持加载编译好的 .js 脚本。",
-                  },
-                  {
-                    name: "CPP Pak Bypass (脚本包兼容补丁)",
-                    nxId: 520,
-                    ok: dash?.frameworks?.cpp_pak_bypass ?? false,
-                    desc: "修复 11 月 4 日游戏更新后，包含 JavaScript 修改的 .pak 模组被拦截失效的问题。",
-                  },
-                  {
-                    name: "PBZ Outfit Framework (独立服装框架)",
-                    nxId: 903,
-                    ok: dash?.frameworks?.outfit_framework ?? false,
-                    desc: "支持新增独立服装栏位，避免多套外观 Mod 互相替换同一件原版服装。",
-                  },
-                ].map((fw) => (
-                  <WuxiaPlaque key={fw.name} variant={fw.ok ? "gold" : "default"}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                      <span style={{ fontFamily: "var(--font-serif)", fontWeight: 700 }}>
-                        {fw.name}
-                      </span>
-                      <span className={`wuxia-seal-tag ${fw.ok ? "jade" : ""}`}>
-                        {fw.ok ? "已安装" : "未安装"}
-                      </span>
-                    </div>
-                    <p style={{ fontSize: 12, color: "var(--parchment-dim)", marginBottom: 10 }}>
-                      {fw.desc}
-                    </p>
-                    <button
-                      className="wuxia-btn"
-                      style={{ padding: "4px 11px", fontSize: 12 }}
-                      onClick={() =>
-                        void withBusy(async () => {
-                          const env = await invoke<UiEnvelope<NexusModDetailsData>>(
-                            "cmd_nexus_mod_details",
-                            { modId: fw.nxId }
-                          );
-                          if (env.status === "ok" && env.data) {
-                            setNxDetails(env.data);
-                            setTab("nexus");
-                          } else {
-                            notify(env.error ?? "读取前置详情失败", true);
-                          }
-                        })
-                      }
-                    >
-                      查看 Nexus #{fw.nxId}
-                    </button>
-                  </WuxiaPlaque>
-                ))}
+                {msg.diagnostics.frameworks.map((fw) => {
+                  const ok = dash?.frameworks?.[fw.key] ?? false;
+                  return (
+                    <WuxiaPlaque key={fw.name} variant={ok ? "gold" : "default"}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                        <span style={{ fontFamily: "var(--font-serif)", fontWeight: 700 }}>
+                          {fw.name}
+                        </span>
+                        <span className={`wuxia-seal-tag ${ok ? "jade" : ""}`}>
+                          {ok ? msg.diagnostics.installed : msg.diagnostics.notInstalled}
+                        </span>
+                      </div>
+                      <p style={{ fontSize: 12, color: "var(--parchment-dim)", marginBottom: 10 }}>
+                        {fw.desc}
+                      </p>
+                      <button
+                        className="wuxia-btn"
+                        style={{ padding: "4px 11px", fontSize: 12 }}
+                        onClick={() =>
+                          void withBusy(async () => {
+                            const env = await invoke<UiEnvelope<NexusModDetailsData>>(
+                              "cmd_nexus_mod_details",
+                              { modId: fw.nxId }
+                            );
+                            if (env.status === "ok" && env.data) {
+                              setNxDetails(env.data);
+                              setTab("nexus");
+                            } else {
+                              notify(env.error ?? msgRef.current.toasts.frameworkDetailsFailed, true);
+                            }
+                          })
+                        }
+                      >
+                        {msg.diagnostics.viewNexus(fw.nxId)}
+                      </button>
+                    </WuxiaPlaque>
+                  );
+                })}
 
                 <WuxiaPlaque>
                   <div style={{ fontFamily: "var(--font-serif)", fontWeight: 700, marginBottom: 6 }}>
-                    代理注入 DLL 占用检测
+                    {msg.diagnostics.proxyTitle}
                   </div>
                   <p style={{ fontSize: 12, color: "var(--parchment-dim)", marginBottom: 8 }}>
-                    检测游戏目录中 <span className="mono">dwmapi / hid / version / winhttp</span> 等同名注入文件占用情况，防止冲突覆盖：
+                    {msg.diagnostics.proxySubBefore}
+                    <span className="mono">dwmapi / hid / version / winhttp</span>
+                    {msg.diagnostics.proxySubAfter}
                   </p>
                   {dash?.frameworks?.occupied_proxy_dlls.length ? (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -1150,7 +1169,7 @@ export default function App() {
                     </div>
                   ) : (
                     <span style={{ fontSize: 12, color: "var(--parchment-muted)" }}>
-                      当前未检测到代理注入 DLL
+                      {msg.diagnostics.proxyEmpty}
                     </span>
                   )}
                 </WuxiaPlaque>
@@ -1162,17 +1181,17 @@ export default function App() {
                 highlighted={pulsedKey === "[data-agent-id='conflict-audit-card']"}
               >
                 <div style={{ fontFamily: "var(--font-serif)", fontWeight: 700, marginBottom: 8 }}>
-                  当前配置冲突检测（文件路径 + .pak / .utoc 内部资产与数据块）
+                  {msg.diagnostics.conflictTitle}
                 </div>
                 {conflictCount === 0 ? (
                   <div style={{ fontSize: 13, color: "var(--jade-bright)" }}>
-                    ◆ 当前启用的 Mod 之间无任何文件或内部资产冲突。
+                    {msg.diagnostics.conflictEmpty}
                   </div>
                 ) : (
                   <ul style={{ paddingLeft: 18, fontSize: 12.5, display: "grid", gap: 5 }}>
-                    {dash?.conflict_messages.map((msg, i) => (
+                    {dash?.conflict_messages.map((cm, i) => (
                       <li key={i} style={{ color: "var(--cinnabar-text)" }}>
-                        {msg}
+                        {cm}
                       </li>
                     ))}
                   </ul>
@@ -1191,6 +1210,7 @@ export default function App() {
                 nxmRegistered={dash?.nxm_registered ?? false}
                 account={nexusAccount}
                 busy={busy}
+                lang={lang}
                 compactWhenBound
                 useEmbeddedBrowser={useEmbeddedBrowser}
                 onToggleEmbeddedBrowser={setUseEmbeddedBrowser}
@@ -1205,7 +1225,7 @@ export default function App() {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
                     <div style={{ fontSize: 12.5, color: "var(--bronze-bright)" }}>{browserConfirmHint}</div>
                     <button className="wuxia-btn-mini" onClick={() => setBrowserConfirmHint(null)}>
-                      知道了
+                      {msg.common.gotIt}
                     </button>
                   </div>
                 </WuxiaPlaque>
@@ -1216,7 +1236,7 @@ export default function App() {
                   data-agent-id="nexus-search-input"
                   className="wuxia-input"
                   style={{ flex: 1 }}
-                  placeholder="免登录搜索 Nexus《影之刃零》Mod（如 QTE / Hold / Outfit，留空查看热门）..."
+                  placeholder={msg.nexus.searchPlaceholder}
                   value={nxKeyword}
                   onChange={(e) => setNxKeyword(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && void runNexusSearch()}
@@ -1228,7 +1248,7 @@ export default function App() {
                   onClick={() => void runNexusSearch()}
                 >
                   <Search size={14} />
-                  搜索 Mod
+                  {msg.nexus.searchBtn}
                 </button>
                 <button
                   data-agent-id="btn-nexus-updates"
@@ -1243,18 +1263,18 @@ export default function App() {
                         setNxUpdates(env.data.updates);
                         notify(
                           env.data.updates.length > 0
-                            ? `发现 ${env.data.updates.length} 个已装 Mod 有可用更新`
-                            : "已关联 Nexus 的 Mod 均已是最新版本"
+                            ? msgRef.current.toasts.updatesFound(env.data.updates.length)
+                            : msgRef.current.toasts.allUpToDate
                         );
                         await refreshDashboard();
                       } else {
-                        notify(env.error ?? "检查更新失败", true);
+                        notify(env.error ?? msgRef.current.toasts.checkUpdatesFailed, true);
                       }
                     })
                   }
                 >
                   <Sparkles size={14} />
-                  检查更新
+                  {msg.nexus.checkUpdatesBtn}
                 </button>
               </WuxiaPlaque>
 
@@ -1268,7 +1288,10 @@ export default function App() {
                         <span className="wuxia-seal-tag">v{nxDetails.summary.version}</span>
                       </div>
                       <div style={{ fontSize: 12, color: "var(--parchment-dim)", marginTop: 2 }}>
-                        作者：{nxDetails.summary.author} · 下载：{nxDetails.summary.downloads} 次 ·{" "}
+                        {msg.nexus.authorDownloads(
+                          nxDetails.summary.author,
+                          nxDetails.summary.downloads
+                        )}
                         <span className="mono">{nxDetails.summary.page_url}</span>
                       </div>
                     </div>
@@ -1279,7 +1302,7 @@ export default function App() {
                         onClick={() => void handleOpenUrl(nxDetails.summary.page_url)}
                       >
                         <ExternalLink size={14} />
-                        打开网页
+                        {msg.nexus.openPageBtn}
                       </button>
                       <button
                         className="wuxia-btn primary-crimson"
@@ -1287,18 +1310,18 @@ export default function App() {
                         onClick={() => void handleDownloadAndInspect(nxDetails.summary.mod_id)}
                       >
                         <Download size={14} />
-                        下载并安装
+                        {msg.nexus.downloadInstallBtn}
                       </button>
                       <button className="wuxia-btn" onClick={() => setNxDetails(null)}>
-                        收起
+                        {msg.common.collapse}
                       </button>
                     </div>
                   </div>
                   <p style={{ fontSize: 12.5, marginBottom: 8 }}>{nxDetails.summary.summary}</p>
                   <div style={{ fontSize: 12, color: "var(--parchment-dim)" }}>
-                    <strong>前置要求：</strong>
+                    <strong>{msg.nexus.requirementsLabel}</strong>
                     {nxDetails.requirements.length === 0
-                      ? " 无额外前置依赖"
+                      ? msg.nexus.noRequirements
                       : nxDetails.requirements.map((r) => ` #${r.mod_id} ${r.name}`).join(" / ")}
                   </div>
                 </WuxiaPlaque>
@@ -1320,8 +1343,7 @@ export default function App() {
                         <span className="wuxia-seal-tag">v{m.version}</span>
                       </div>
                       <div style={{ fontSize: 11.5, color: "var(--parchment-muted)", marginBottom: 6 }}>
-                        #{m.mod_id} · {m.author} · {m.downloads.toLocaleString()} 次下载
-                        {m.category ? ` · ${m.category}` : ""}
+                        {msg.nexus.cardStats(m.mod_id, m.author, m.downloads, m.category)}
                       </div>
                       <p
                         style={{
@@ -1334,7 +1356,7 @@ export default function App() {
                           overflow: "hidden",
                         }}
                       >
-                        {m.summary || "暂无简介"}
+                        {m.summary || msg.nexus.noSummary}
                       </p>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
@@ -1349,17 +1371,17 @@ export default function App() {
                                 { modId: m.mod_id }
                               );
                               if (env.status === "ok" && env.data) setNxDetails(env.data);
-                              else notify(env.error ?? "读取 Mod 详情失败", true);
+                              else notify(env.error ?? msgRef.current.toasts.modDetailsFailed, true);
                             })
                           }
                         >
-                          详情与前置
+                          {msg.nexus.detailsBtn}
                         </button>
                         <button
                           className="wuxia-btn"
                           disabled={busy}
                           onClick={() => void handleOpenUrl(m.page_url)}
-                          title="在浏览器打开 Nexus 主页"
+                          title={msg.nexus.openBrowserTitle}
                         >
                           <ExternalLink size={13} />
                         </button>
@@ -1371,7 +1393,7 @@ export default function App() {
                         onClick={() => void handleDownloadAndInspect(m.mod_id)}
                       >
                         <Download size={13} />
-                        下载预检
+                        {msg.nexus.downloadInspectBtn}
                       </button>
                     </div>
                   </WuxiaPlaque>
@@ -1385,20 +1407,20 @@ export default function App() {
             <>
               <WuxiaPlaque variant="gold">
                 <div style={{ fontFamily: "var(--font-serif)", fontWeight: 700, marginBottom: 10, color: "var(--bronze-bright)" }}>
-                  手动备份当前游戏存档 (SaveGames)
+                  {msg.backups.manualTitle}
                 </div>
                 <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
                   <input
                     className="wuxia-input"
                     style={{ flex: 1, minWidth: 220 }}
-                    placeholder="输入备份备注（如：挑战 Boss 前 / 安装新 Mod 前）..."
+                    placeholder={msg.backups.notePlaceholder}
                     value={backupNote}
                     onChange={(e) => setBackupNote(e.target.value)}
                   />
                   <SealCheck
                     checked={backupPin}
                     onChange={setBackupPin}
-                    label="永久保留（不被配额自动清理）"
+                    label={msg.backups.pinLabel}
                   />
                   <button
                     data-agent-id="btn-backup-create"
@@ -1413,21 +1435,21 @@ export default function App() {
                         if (env.status === "ok") {
                           setBackupNote("");
                           setBackupPin(false);
-                          notify("存档备份已完成（含 SHA-256 完整性校验）");
+                          notify(msgRef.current.toasts.backupCreated);
                           await refreshDashboard();
-                        } else notify(env.error ?? "备份失败", true);
+                        } else notify(env.error ?? msgRef.current.toasts.backupFailed, true);
                       })
                     }
                   >
                     <ArchiveRestore size={14} />
-                    立即备份
+                    {msg.backups.createBtn}
                   </button>
                 </div>
               </WuxiaPlaque>
 
               {dash?.save_backups.length === 0 ? (
                 <WuxiaPlaque style={{ textAlign: "center", padding: "36px 20px", color: "var(--parchment-muted)" }}>
-                  暂无存档备份。在首次安装、卸载或切换配置方案前，系统会自动为你创建防损快照。
+                  {msg.backups.emptyState}
                 </WuxiaPlaque>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
@@ -1438,12 +1460,11 @@ export default function App() {
                           <span className="mono" style={{ fontWeight: 700 }}>
                             {b.id}
                           </span>
-                          {b.pinned && <span className="wuxia-seal-tag gold">永久保留</span>}
+                          {b.pinned && <span className="wuxia-seal-tag gold">{msg.backups.pinnedTag}</span>}
                           <span className="wuxia-seal-tag">{b.trigger_reason}</span>
                         </div>
                         <div style={{ fontSize: 12, color: "var(--parchment-dim)", marginTop: 3 }}>
-                          {b.note ? `备注：${b.note} · ` : ""}
-                          包含 {b.file_count} 个存档文件 · {formatBytes(b.size_bytes)} · SHA-256:{" "}
+                          {msg.backups.meta(b.note, b.file_count, formatBytes(b.size_bytes))}
                           <span className="mono">{b.sha256.slice(0, 12)}...</span>
                         </div>
                       </div>
@@ -1451,7 +1472,7 @@ export default function App() {
                       {confirmRestoreId === b.id ? (
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontSize: 12, color: "var(--cinnabar-text)" }}>
-                            确认覆盖当前存档？（请先退出游戏）
+                            {msg.backups.confirmPrompt}
                           </span>
                           <button
                             className="wuxia-btn primary-crimson"
@@ -1464,16 +1485,16 @@ export default function App() {
                                 });
                                 if (env.status === "ok") {
                                   setConfirmRestoreId(null);
-                                  notify("存档已安全恢复（恢复前状态已自动留底）");
+                                  notify(msgRef.current.toasts.backupRestored);
                                   await refreshDashboard();
-                                } else notify(env.error ?? "恢复失败", true);
+                                } else notify(env.error ?? msgRef.current.toasts.restoreFailed, true);
                               })
                             }
                           >
-                            确认恢复
+                            {msg.backups.confirmRestoreBtn}
                           </button>
                           <button className="wuxia-btn" onClick={() => setConfirmRestoreId(null)}>
-                            取消
+                            {msg.common.cancel}
                           </button>
                         </div>
                       ) : (
@@ -1482,7 +1503,7 @@ export default function App() {
                           disabled={busy}
                           onClick={() => setConfirmRestoreId(b.id)}
                         >
-                          恢复此备份
+                          {msg.backups.restoreBtn}
                         </button>
                       )}
                     </div>
@@ -1498,23 +1519,23 @@ export default function App() {
               <WuxiaPlaque>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                   <span style={{ fontFamily: "var(--font-serif)", fontWeight: 700 }}>
-                    《影之刃零》游戏目录设置
+                    {msg.settings.gameDirTitle}
                   </span>
                   <button className="wuxia-btn" onClick={() => void handlePickGameDir()}>
                     <FolderSearch size={14} />
-                    重新选择目录
+                    {msg.settings.repickDirBtn}
                   </button>
                 </div>
                 {dash?.game ? (
                   <div className="mono" style={{ display: "grid", gap: 5, color: "var(--parchment-dim)" }}>
-                    <div>游戏根目录：{dash.game.root_dir}</div>
-                    <div>主程序路径：{dash.game.shipping_exe}</div>
-                    <div>Pak ~mods：{dash.game.tilde_mods_dir}</div>
-                    <div>UE4SS 目录：{dash.game.ue4ss_mods_dir}</div>
-                    <div>存档目录：{dash.game.save_games_dir}</div>
+                    <div>{msg.settings.rootDir}{dash.game.root_dir}</div>
+                    <div>{msg.settings.shippingExe}{dash.game.shipping_exe}</div>
+                    <div>{msg.settings.tildeModsDir}{dash.game.tilde_mods_dir}</div>
+                    <div>{msg.settings.ue4ssDir}{dash.game.ue4ss_mods_dir}</div>
+                    <div>{msg.settings.saveDir}{dash.game.save_games_dir}</div>
                   </div>
                 ) : (
-                  <div style={{ color: "var(--parchment-muted)" }}>尚未绑定游戏目录</div>
+                  <div style={{ color: "var(--parchment-muted)" }}>{msg.settings.gameNotBound}</div>
                 )}
               </WuxiaPlaque>
 
@@ -1525,6 +1546,7 @@ export default function App() {
                 nxmRegistered={dash?.nxm_registered ?? false}
                 account={nexusAccount}
                 busy={busy}
+                lang={lang}
                 useEmbeddedBrowser={useEmbeddedBrowser}
                 onToggleEmbeddedBrowser={setUseEmbeddedBrowser}
                 onOpenUrl={handleOpenUrl}
@@ -1536,7 +1558,7 @@ export default function App() {
               <WuxiaPlaque variant="gold">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <span style={{ fontFamily: "var(--font-serif)", fontWeight: 700, color: "var(--bronze-bright)" }}>
-                    CLI 命令行与 AI Agent (MCP) 接入配置
+                    {msg.settings.mcpTitle}
                   </span>
                   <button
                     className="wuxia-btn"
@@ -1547,15 +1569,17 @@ export default function App() {
                           setCopiedMcp(true);
                           window.setTimeout(() => setCopiedMcp(false), 2000);
                         })
-                        .catch(() => notify("复制失败，请手动选中下方配置文本复制", true));
+                        .catch(() => notify(msgRef.current.toasts.copyMcpFailed, true));
                     }}
                   >
                     {copiedMcp ? <Check size={13} /> : <Copy size={13} />}
-                    {copiedMcp ? "已复制" : "复制 MCP 配置"}
+                    {copiedMcp ? msg.settings.copied : msg.settings.copyMcp}
                   </button>
                 </div>
                 <p style={{ fontSize: 12, color: "var(--parchment-dim)", marginBottom: 8 }}>
-                  共享数据目录：<span className="mono">{dash?.data_dir}</span>。通过命令行或 MCP 执行的操作会自动同步展示在桌面端界面中：
+                  {msg.settings.mcpDescBefore}
+                  <span className="mono">{dash?.data_dir}</span>
+                  {msg.settings.mcpDescAfter}
                 </p>
                 <pre className="manifest-code-box mono" style={{ color: "var(--bronze-bright)" }}>
                   {mcpSnippet}
@@ -1572,6 +1596,7 @@ export default function App() {
           key={`${inspectData.payload.source_path}:${inspectData.nexusId ?? ""}`}
           payload={inspectData.payload}
           busy={busy}
+          lang={lang}
           triggeredByAgent={inspectData.triggeredByAgent}
           nexusIdOverride={inspectData.nexusId}
           versionOverride={inspectData.version}
@@ -1585,43 +1610,43 @@ export default function App() {
         <div className="modal-backdrop" onClick={() => setShowNewProfile(false)}>
           <div className="modal-scroll-panel" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>新建 Mod 配置方案</h2>
+              <h2>{msg.newProfileModal.title}</h2>
             </div>
             <div className="modal-body">
               <input
                 className="wuxia-input"
-                placeholder="英文标识 ID（如 practice / outfits）"
+                placeholder={msg.newProfileModal.idPlaceholder}
                 value={newProfId}
                 onChange={(e) => setNewProfId(e.target.value)}
               />
               <input
                 className="wuxia-input"
-                placeholder="配置显示名称（如 练习模式 / 纯外观）"
+                placeholder={msg.newProfileModal.namePlaceholder}
                 value={newProfName}
                 onChange={(e) => setNewProfName(e.target.value)}
               />
               <input
                 className="wuxia-input"
-                placeholder="备注说明（可选）"
+                placeholder={msg.newProfileModal.descPlaceholder}
                 value={newProfDesc}
                 onChange={(e) => setNewProfDesc(e.target.value)}
               />
               <SealCheck
                 checked={newProfClone}
                 onChange={setNewProfClone}
-                label="复制当前配置的 Mod 启用状态（游戏存档始终共用）"
+                label={msg.newProfileModal.cloneLabel}
               />
             </div>
             <div className="modal-footer">
               <button className="wuxia-btn" onClick={() => setShowNewProfile(false)}>
-                取消
+                {msg.common.cancel}
               </button>
               <button
                 className="wuxia-btn primary-crimson"
                 disabled={busy}
                 onClick={() => {
                   if (!newProfId.trim() || !newProfName.trim()) {
-                    return notify("请填写英文标识 ID 与显示名称", true);
+                    return notify(msgRef.current.toasts.profileMissingFields, true);
                   }
                   void withBusy(async () => {
                     const env = await invoke<UiEnvelope>("cmd_create_profile", {
@@ -1635,13 +1660,13 @@ export default function App() {
                       setNewProfId("");
                       setNewProfName("");
                       setNewProfDesc("");
-                      notify("新配置方案已创建");
+                      notify(msgRef.current.toasts.profileCreated);
                       await refreshDashboard();
-                    } else notify(env.error ?? "创建失败", true);
+                    } else notify(env.error ?? msgRef.current.toasts.profileCreateFailed, true);
                   });
                 }}
               >
-                创建配置
+                {msg.newProfileModal.createBtn}
               </button>
             </div>
           </div>
@@ -1649,16 +1674,16 @@ export default function App() {
       )}
 
       {/* 1 + A: Clean Live Sync Status & Activity Drawer */}
-      <PuppeteerOverlay activeBanner={activeBanner} events={activityLog} />
+      <PuppeteerOverlay activeBanner={activeBanner} events={activityLog} lang={lang} />
 
       {dragging && (
         <div className="drag-veil">
           <div style={{ textAlign: "center" }}>
             <div style={{ fontFamily: "var(--font-serif)", fontSize: 24, fontWeight: 700, color: "var(--bronze-bright)" }}>
-              松开鼠标以预检并安装 Mod
+              {msg.mods.dragOverlayTitle}
             </div>
             <div style={{ fontSize: 13.5, color: "var(--parchment-dim)", marginTop: 6 }}>
-              自动检查压缩包结构、互斥可选版本与 .pak / .utoc 内部资产冲突
+              {msg.mods.dragOverlaySub}
             </div>
           </div>
         </div>

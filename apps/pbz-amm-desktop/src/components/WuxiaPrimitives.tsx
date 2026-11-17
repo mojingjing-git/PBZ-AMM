@@ -95,6 +95,8 @@ interface LozengeSwitchProps {
   onChange: () => void;
   agentId?: string;
   title?: string;
+  onLabel?: string;
+  offLabel?: string;
 }
 
 /**
@@ -107,6 +109,8 @@ export const LozengeSwitch: React.FC<LozengeSwitchProps> = ({
   onChange,
   agentId,
   title,
+  onLabel = "开",
+  offLabel = "关",
 }) => (
   <button
     type="button"
@@ -117,7 +121,7 @@ export const LozengeSwitch: React.FC<LozengeSwitchProps> = ({
     aria-pressed={checked}
   >
     <span className="lozenge-groove" />
-    <span className="lozenge-label">{checked ? "开" : "关"}</span>
+    <span className="lozenge-label">{checked ? onLabel : offLabel}</span>
     <span className="lozenge-diamond">
       <span className="lozenge-inner-dot" />
     </span>

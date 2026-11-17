@@ -1,11 +1,13 @@
 import React, { useState } from "react";
 import { AlertTriangle, CheckCircle2, Layers, ShieldAlert, X } from "lucide-react";
+import { MESSAGES, UiLang } from "../i18n";
 import { InspectPayload } from "../types";
 import { InkDivider, SealCheck, WuxiaPlaque } from "./WuxiaPrimitives";
 
 interface InspectModalProps {
   payload: InspectPayload;
   busy: boolean;
+  lang: UiLang;
   triggeredByAgent?: boolean;
   nexusIdOverride?: number;
   versionOverride?: string;
@@ -23,12 +25,15 @@ interface InspectModalProps {
 export const InspectModal: React.FC<InspectModalProps> = ({
   payload,
   busy,
+  lang,
   triggeredByAgent,
   nexusIdOverride,
   versionOverride,
   onClose,
   onConfirmInstall,
 }) => {
+  const m = MESSAGES[lang].inspectModal;
+  const common = MESSAGES[lang].common;
   const { report, conflict_texts, source_path } = payload;
   const [selectedVariant, setSelectedVariant] = useState<string>(
     report.variants.length === 1 ? report.variants[0].name : ""
@@ -57,10 +62,10 @@ export const InspectModal: React.FC<InspectModalProps> = ({
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <img src="/assets/seal-emblem.png" alt="" width={32} height={32} />
             <div>
-              <h2>安装预检 · {report.suggested_name}</h2>
+              <h2>{m.titlePrefix}{report.suggested_name}</h2>
               {triggeredByAgent && (
                 <div style={{ fontSize: 11.5, color: "var(--cinnabar-text)", marginTop: 2 }}>
-                  已同步 CLI / Agent 预检结果：可直接在此选择并完成安装，也可回到命令行继续确认
+                  {m.agentSynced}
                 </div>
               )}
             </div>
@@ -72,7 +77,7 @@ export const InspectModal: React.FC<InspectModalProps> = ({
 
         <div className="modal-body">
           <div style={{ fontSize: 12, color: "var(--parchment-dim)" }}>
-            来源路径：<span className="mono">{source_path}</span>
+            {m.sourcePath}<span className="mono">{source_path}</span>
             {(nexusIdOverride || report.nexus_mod_id_hint) && (
               <span className="wuxia-seal-tag gold" style={{ marginLeft: 8 }}>
                 Nexus #{nexusIdOverride ?? report.nexus_mod_id_hint}
@@ -83,9 +88,9 @@ export const InspectModal: React.FC<InspectModalProps> = ({
           {report.ignored_executables.length > 0 && (
             <WuxiaPlaque variant="gold" style={{ padding: "10px 14px", fontSize: 12 }}>
               <span style={{ color: "var(--bronze-bright)", fontWeight: 600 }}>
-                安全提示：
+                {m.securityPrefix}
               </span>
-              已自动忽略包内附带的 {report.ignored_executables.length} 个可执行文件/脚本（不会运行任何外部程序）。
+              {m.securityBody(report.ignored_executables.length)}
             </WuxiaPlaque>
           )}
 
@@ -93,7 +98,7 @@ export const InspectModal: React.FC<InspectModalProps> = ({
             <WuxiaPlaque variant="gold">
               <div style={{ fontWeight: 600, marginBottom: 10, color: "var(--bronze-bright)" }}>
                 <Layers size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />
-                检测到 {report.variants.length} 个互斥可选版本（变体），请选择要安装的一项：
+                {m.variantsPrompt(report.variants.length)}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {report.variants.map((v) => {
@@ -119,7 +124,7 @@ export const InspectModal: React.FC<InspectModalProps> = ({
                         label={<span style={{ fontWeight: 600 }}>{v.name}</span>}
                       />
                       <span style={{ fontSize: 11.5, color: "var(--parchment-dim)" }}>
-                        {v.categories.join(" / ")} · {v.files.length} 个文件
+                        {v.categories.join(" / ")} · {m.variantFileCount(v.files.length)}
                       </span>
                     </div>
                   );
@@ -130,10 +135,10 @@ export const InspectModal: React.FC<InspectModalProps> = ({
 
           {activeVariant && (
             <>
-              <InkDivider label={`文件部署预览 · ${activeVariant.name}`} />
+              <InkDivider label={`${m.deployPreviewPrefix}${activeVariant.name}`} />
               <WuxiaPlaque>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                  <span style={{ fontWeight: 600 }}>目标位置清单</span>
+                  <span style={{ fontWeight: 600 }}>{m.targetManifest}</span>
                   <div style={{ display: "flex", gap: 6 }}>
                     {activeVariant.categories.map((c) => (
                       <span key={c} className="wuxia-seal-tag gold">
@@ -146,15 +151,17 @@ export const InspectModal: React.FC<InspectModalProps> = ({
                   {activeVariant.files.map((f, idx) => (
                     <div key={idx}>
                       [{f.target}] → {f.target_rel}
-                      {f.is_user_config ? " (配置文件·更新时自动保留)" : ""}
+                      {f.is_user_config ? m.userConfigSuffix : ""}
                     </div>
                   ))}
                 </div>
                 {activeVariant.containers.length > 0 && (
                   <div style={{ marginTop: 8, fontSize: 12, color: "var(--parchment-dim)" }}>
-                    已解析容器包：{activeVariant.containers.length} 个（共扫描{" "}
-                    {activeVariant.containers.reduce((acc, c) => acc + c.asset_paths.length, 0)} 条内部资产路径 /{" "}
-                    {activeVariant.containers.reduce((acc, c) => acc + c.chunk_ids.length, 0)} 个 IoStore 数据块）
+                    {m.containersSummary(
+                      activeVariant.containers.length,
+                      activeVariant.containers.reduce((acc, c) => acc + c.asset_paths.length, 0),
+                      activeVariant.containers.reduce((acc, c) => acc + c.chunk_ids.length, 0)
+                    )}
                   </div>
                 )}
               </WuxiaPlaque>
@@ -169,14 +176,14 @@ export const InspectModal: React.FC<InspectModalProps> = ({
               {activeVariant.problems.map((p, i) => (
                 <WuxiaPlaque key={i} variant="crimson" style={{ padding: "10px 14px", fontSize: 12.5 }}>
                   <ShieldAlert size={14} color="var(--cinnabar-bright)" style={{ verticalAlign: "-2px", marginRight: 6 }} />
-                  无法安装：{p}
+                  {m.blockingPrefix}{p}
                 </WuxiaPlaque>
               ))}
 
               {activeConflicts.length > 0 && (
                 <WuxiaPlaque variant="crimson">
                   <div style={{ fontWeight: 600, color: "var(--cinnabar-text)", marginBottom: 6 }}>
-                    检测到 {activeConflicts.length} 项文件或内部资产冲突：
+                    {m.conflictsDetected(activeConflicts.length)}
                   </div>
                   <ul style={{ paddingLeft: 18, fontSize: 12, color: "var(--parchment-main)", marginBottom: 10 }}>
                     {activeConflicts.map((c, idx) => (
@@ -186,7 +193,7 @@ export const InspectModal: React.FC<InspectModalProps> = ({
                   <SealCheck
                     checked={allowConflicts}
                     onChange={setAllowConflicts}
-                    label="我已了解上述覆盖关系，确认继续安装"
+                    label={m.allowConflictsLabel}
                   />
                 </WuxiaPlaque>
               )}
@@ -194,7 +201,7 @@ export const InspectModal: React.FC<InspectModalProps> = ({
               {uncertainFiles.length > 0 && (
                 <WuxiaPlaque variant="crimson">
                   <div style={{ fontWeight: 600, color: "var(--cinnabar-text)", marginBottom: 6 }}>
-                    包含未识别用途的 DLL 文件：
+                    {m.uncertainTitle}
                   </div>
                   <div className="mono" style={{ marginBottom: 8 }}>
                     {uncertainFiles.map((u) => u.target_rel).join(", ")}
@@ -202,7 +209,7 @@ export const InspectModal: React.FC<InspectModalProps> = ({
                   <SealCheck
                     checked={allowUncertain}
                     onChange={setAllowUncertain}
-                    label="信任此文件来源并允许放入游戏目录"
+                    label={m.allowUncertainLabel}
                   />
                 </WuxiaPlaque>
               )}
@@ -212,7 +219,7 @@ export const InspectModal: React.FC<InspectModalProps> = ({
 
         <div className="modal-footer">
           <button className="wuxia-btn" onClick={onClose} disabled={busy}>
-            取消
+            {common.cancel}
           </button>
           <button
             className="wuxia-btn primary-crimson"
@@ -230,7 +237,7 @@ export const InspectModal: React.FC<InspectModalProps> = ({
             }
           >
             <CheckCircle2 size={14} />
-            {busy ? "正在安装..." : "确认安装并启用"}
+            {busy ? m.installing : m.confirmInstall}
           </button>
         </div>
       </div>

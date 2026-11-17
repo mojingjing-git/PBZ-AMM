@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { CheckCircle2, ExternalLink, KeyRound, Link2, ShieldCheck } from "lucide-react";
+import { MESSAGES, UiLang } from "../i18n";
 import { SealCheck, WuxiaPlaque } from "./WuxiaPrimitives";
 
 export interface NexusAccountInfo {
@@ -12,6 +13,7 @@ interface NexusAuthPanelProps {
   nxmRegistered: boolean;
   account: NexusAccountInfo | null;
   busy: boolean;
+  lang: UiLang;
   compactWhenBound?: boolean;
   useEmbeddedBrowser: boolean;
   onToggleEmbeddedBrowser: (val: boolean) => void;
@@ -30,6 +32,7 @@ export const NexusAuthPanel: React.FC<NexusAuthPanelProps> = ({
   nxmRegistered,
   account,
   busy,
+  lang,
   compactWhenBound = false,
   useEmbeddedBrowser,
   onToggleEmbeddedBrowser,
@@ -42,12 +45,14 @@ export const NexusAuthPanel: React.FC<NexusAuthPanelProps> = ({
 }) => {
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [expanded, setExpanded] = useState(false);
+  const t = MESSAGES[lang].nexus.auth;
+  const common = MESSAGES[lang].common;
 
   const accountBadge = account
-    ? `${account.name}（${account.is_premium ? "会员 · 支持静默直连" : "免费账号 · 支持网页点一下自动接管"}）`
+    ? `${account.name} (${account.is_premium ? t.premiumAccount : t.freeAccount})`
     : hasKey
-      ? "密钥已存入系统凭据库"
-      : "未绑定账号";
+      ? t.keyStored
+      : t.unbound;
 
   if (compactWhenBound && hasKey && !expanded) {
     return (
@@ -58,25 +63,25 @@ export const NexusAuthPanel: React.FC<NexusAuthPanelProps> = ({
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <CheckCircle2 size={15} color="var(--icon-jade)" />
-          <span style={{ fontSize: 13, fontWeight: 600 }}>Nexus 账号：{accountBadge}</span>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{t.accountPrefix}{accountBadge}</span>
           <span className={`wuxia-seal-tag ${nxmRegistered ? "jade" : "gold"}`}>
-            {nxmRegistered ? "nxm:// 已就绪" : "nxm:// 未注册"}
+            {nxmRegistered ? t.nxmReady : t.nxmUnregistered}
           </span>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <SealCheck
             checked={useEmbeddedBrowser}
             onChange={onToggleEmbeddedBrowser}
-            label="内置小窗打开（不勾选则复用日常浏览器免重登）"
+            label={t.embeddedCompactLabel}
           />
           {!nxmRegistered && (
             <button className="wuxia-btn gold" disabled={busy} onClick={() => void onRegisterNxm()}>
               <Link2 size={13} />
-              一键注册 nxm://
+              {t.registerNxmOneClick}
             </button>
           )}
           <button className="wuxia-btn" onClick={() => setExpanded(true)}>
-            管理绑定
+            {t.manageBinding}
           </button>
         </div>
       </WuxiaPlaque>
@@ -98,19 +103,17 @@ export const NexusAuthPanel: React.FC<NexusAuthPanelProps> = ({
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <KeyRound size={15} color="var(--icon-bronze)" />
           <span style={{ fontFamily: "var(--font-serif)", fontWeight: 700 }}>
-            {hasKey
-              ? "Nexus Mods 账号与 nxm:// 下载协议"
-              : "绑定 Nexus Mods 账号（支持免费账号，3 步即可下载安装）"}
+            {hasKey ? t.headerBound : t.headerUnbound}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span className={`wuxia-seal-tag ${hasKey ? "jade" : "gold"}`}>{accountBadge}</span>
           <span className={`wuxia-seal-tag ${nxmRegistered ? "jade" : ""}`}>
-            {nxmRegistered ? "nxm:// 已注册" : "nxm:// 未注册"}
+            {nxmRegistered ? t.nxmRegistered : t.nxmUnregistered}
           </span>
           {compactWhenBound && hasKey && (
             <button className="wuxia-btn-mini" onClick={() => setExpanded(false)}>
-              收起
+              {common.collapse}
             </button>
           )}
         </div>
@@ -127,17 +130,26 @@ export const NexusAuthPanel: React.FC<NexusAuthPanelProps> = ({
         }}
       >
         <div>
-          <strong>第 1 步：</strong>点右侧按钮在浏览器登录 Nexus，拉到页面最底部{" "}
+          <strong>{t.step1Prefix}</strong>
+          {t.step1BodyBeforeKey}
           <span className="mono" style={{ color: "var(--bronze-bright)" }}>
             Personal API Key
-          </span>{" "}
-          区域，点 <span className="mono">Request an API Key</span> 生成并复制密钥。
+          </span>
+          {t.step1BodyBetween}
+          <span className="mono">Request an API Key</span>
+          {t.step1BodyAfter}
         </div>
         <div>
-          <strong>第 2 步：</strong>把密钥粘贴到下方并点击「验证并绑定」（仅加密存于 Windows 凭据管理器，绝不明文落盘）。
+          <strong>{t.step2Prefix}</strong>
+          {t.step2Body}
         </div>
         <div>
-          <strong>第 3 步（免费号说明）：</strong>默认直接用你<strong>日常已登录的浏览器</strong>打开下载页（不用重新登录！），软件同时会自动监听系统下载目录与 <span className="mono">nxm://</span>——你无论在网页点 <span className="mono">Manual Download</span> 还是 <span className="mono">Mod Manager Download → Slow Download</span>，下完都会自动弹出安装预检。
+          <strong>{t.step3Prefix}</strong>
+          {t.step3BeforeStrong}
+          <strong>{t.step3Strong}</strong>
+          {t.step3Middle}
+          <span className="mono">nxm://</span>
+          {t.step3After}
         </div>
       </div>
 
@@ -146,17 +158,17 @@ export const NexusAuthPanel: React.FC<NexusAuthPanelProps> = ({
           className="wuxia-btn"
           disabled={busy}
           onClick={() => void onOpenUrl(NEXUS_API_KEY_URL)}
-          title="在默认浏览器中打开 Nexus Personal API Key 页面"
+          title={t.openKeyPageTitle}
         >
           <ExternalLink size={13} />
-          打开 Nexus 获取密钥
+          {t.openKeyPageBtn}
         </button>
 
         <input
           type="password"
           className="wuxia-input"
           style={{ flex: 1, minWidth: 220 }}
-          placeholder="粘贴 Nexus Personal API Key..."
+          placeholder={t.keyPlaceholder}
           value={apiKeyInput}
           onChange={(e) => setApiKeyInput(e.target.value)}
         />
@@ -173,18 +185,18 @@ export const NexusAuthPanel: React.FC<NexusAuthPanelProps> = ({
           }}
         >
           <ShieldCheck size={13} />
-          验证并绑定（自动开启 nxm://）
+          {t.bindBtn}
         </button>
 
         {!nxmRegistered && (
           <button className="wuxia-btn" disabled={busy} onClick={() => void onRegisterNxm()}>
-            仅注册 nxm://
+            {t.registerOnlyBtn}
           </button>
         )}
 
         {hasKey && (
           <button className="wuxia-btn primary-crimson" disabled={busy} onClick={() => void onClearKey()}>
-            清除密钥
+            {t.clearBtn}
           </button>
         )}
       </div>
@@ -192,7 +204,7 @@ export const NexusAuthPanel: React.FC<NexusAuthPanelProps> = ({
         <SealCheck
           checked={useEmbeddedBrowser}
           onChange={onToggleEmbeddedBrowser}
-          label="下载与打开网页时使用内置小窗（不勾选则复用日常浏览器免重登，自动接管下载）"
+          label={t.embeddedFullLabel}
         />
       </div>
     </WuxiaPlaque>

@@ -177,7 +177,7 @@ fn inspect_utoc(path: &Path, container_name: String) -> ContainerIndex {
     if file.seek(SeekFrom::Start(u64::from(header_size))).is_ok() {
         let mut raw_ids = vec![0u8; (toc_entry_count as usize) * 12];
         if file.read_exact(&mut raw_ids).is_ok() {
-            for chunk in raw_ids.chunks_exact(12) {
+            for chunk in raw_ids.as_chunks::<12>().0 {
                 // Chunk type byte is chunk[11]; skip ContainerHeader meta chunk (type 10 in UE5) if desired,
                 // or keep all non-zero asset chunks for exact collision matching.
                 if chunk.iter().any(|&b| b != 0) {
@@ -387,7 +387,9 @@ fn read_fstring(buf: &[u8], cur: &mut usize) -> Option<String> {
         let slice = buf.get(*cur..end)?;
         *cur = end;
         let mut units: Vec<u16> = slice
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
             .collect();
         if units.last() == Some(&0) {

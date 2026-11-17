@@ -1242,7 +1242,7 @@ fn sync_pbz_loader_ini(
     all_managed_mods: &BTreeSet<String>,
 ) -> Result<()> {
     let ini_path = loader_dir.join("mods.ini");
-    if !ini_path.is_file() && enabled_mods.is_empty() {
+    if !ini_path.is_file() && all_managed_mods.is_empty() {
         return Ok(());
     }
     if !loader_dir.is_dir() {
@@ -1255,42 +1255,59 @@ fn sync_pbz_loader_ini(
         String::new()
     };
 
-    let mut seen: BTreeSet<String> = BTreeSet::new();
-    let mut out_lines: Vec<String> = Vec::new();
+    // PBZModLoader 2.x strictly requires `[Loader]` (`Version=1`) followed by `[Mods]`.
+    let mut loader_kv: Vec<(String, String)> = Vec::new();
+    let mut unmanaged_mods_lines: Vec<String> = Vec::new();
+    let mut current_section = String::new();
 
     for line in existing.lines() {
         let trimmed = line.trim();
-        if !trimmed.starts_with('[')
-            && !trimmed.starts_with('#')
-            && !trimmed.starts_with(';')
-            && let Some((lhs, _rhs)) = trimmed.split_once('=')
-        {
-            let mod_name = lhs.trim();
-            if let Some(managed) = all_managed_mods
-                .iter()
-                .find(|m| m.eq_ignore_ascii_case(mod_name))
-            {
-                let flag = if enabled_mods.contains(managed) {
-                    1
-                } else {
-                    0
-                };
-                out_lines.push(format!("{managed}={flag}"));
-                seen.insert(managed.to_ascii_lowercase());
-                continue;
+        if trimmed.is_empty() || trimmed.starts_with(';') || trimmed.starts_with('#') {
+            continue;
+        }
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            current_section = trimmed[1..trimmed.len() - 1].trim().to_ascii_lowercase();
+            continue;
+        }
+        if let Some((lhs, rhs)) = trimmed.split_once('=') {
+            let key = lhs.trim();
+            let val = rhs.trim();
+            if current_section == "loader" {
+                loader_kv.push((key.to_string(), val.to_string()));
+            } else {
+                // Either under `[Mods]` or migrated from a legacy flat `mods.ini`
+                let is_managed = all_managed_mods.iter().any(|m| m.eq_ignore_ascii_case(key));
+                if !is_managed {
+                    unmanaged_mods_lines.push(format!("{key}={val}"));
+                }
             }
         }
-        out_lines.push(line.to_string());
     }
 
-    for m in enabled_mods {
-        if !seen.contains(&m.to_ascii_lowercase()) {
-            out_lines.push(format!("{m}=1"));
-        }
+    let get_loader_val = |k: &str, default: &str| -> String {
+        loader_kv
+            .iter()
+            .find(|(ek, _)| ek.eq_ignore_ascii_case(k))
+            .map(|(_, ev)| ev.clone())
+            .unwrap_or_else(|| default.to_string())
+    };
+
+    let mut out_lines = vec![
+        "[Loader]".to_string(),
+        "Version=1".to_string(),
+        format!("Enabled={}", get_loader_val("Enabled", "1")),
+        format!("AllowScriptPaks={}", get_loader_val("AllowScriptPaks", "1")),
+        String::new(),
+        "[Mods]".to_string(),
+    ];
+
+    out_lines.extend(unmanaged_mods_lines);
+
+    for m in all_managed_mods {
+        let flag = if enabled_mods.contains(m) { 1 } else { 0 };
+        out_lines.push(format!("{m}={flag}"));
     }
 
-    if ini_path.is_file() || !enabled_mods.is_empty() {
-        fs::write(&ini_path, out_lines.join("\r\n") + "\r\n")?;
-    }
+    fs::write(&ini_path, out_lines.join("\r\n") + "\r\n")?;
     Ok(())
 }

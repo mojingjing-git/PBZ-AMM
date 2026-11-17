@@ -57,7 +57,7 @@ jobs:
           Copy-Item "target/release/pbz-amm.exe" "$stage/pbz-amm.exe"
           Copy-Item "target/release/pbz-amm-desktop.exe" "$stage/pbz-amm-desktop.exe"
           Copy-Item "README.md" "$stage/README.md"
-          Copy-Item "README.zh-CN.md" "$stage/README.zh-CN.md"
+          Copy-Item "README.en.md" "$stage/README.en.md"
           Copy-Item "LICENSE" "$stage/LICENSE"
           Copy-Item -Recurse "skills" "$stage/skills"
           Compress-Archive -Path "$stage/*" -DestinationPath "PBZ-AMM-windows-x64.zip" -Force

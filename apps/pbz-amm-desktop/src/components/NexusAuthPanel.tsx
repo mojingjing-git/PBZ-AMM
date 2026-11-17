@@ -128,8 +128,8 @@ export const NexusAuthPanel: React.FC<NexusAuthPanelProps> = ({
           <strong>第 2 步：</strong>把密钥粘贴到下方并点击「验证并绑定」（仅加密存于 Windows 凭据管理器，绝不明文落盘）。
         </div>
         <div>
-          <strong>第 3 步（免费号说明）：</strong>绑定后在工坊点「下载预检」，软件会自动打开对应文件页；你只需在网页点{" "}
-          <span className="mono">Mod Manager Download → Slow Download</span>，浏览器即会自动把下载回传给本软件。
+          <strong>第 3 步（免费号说明）：</strong>绑定后在工坊点「下载预检」，软件会自动弹出<strong>内置轻量浏览窗</strong>（记住登录态、无需切外部浏览器）；你只需在窗内亲手点一下{" "}
+          <span className="mono">Slow Download</span>，小窗即会自动关闭并接管安装。
         </div>
       </div>
 

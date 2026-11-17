@@ -256,6 +256,48 @@ export default function App() {
     [notify]
   );
 
+  // Listen for in-app embedded Nexus browser download completions
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    let unDl: (() => void) | undefined;
+    let unEvt: (() => void) | undefined;
+
+    listen<{ path: string; nexus_mod_id?: number | null; version?: string | null }>(
+      "amm://nexus-downloaded",
+      (e) => {
+        setBrowserConfirmHint(null);
+        notify("内置浏览窗下载完成，正在打开安装预检...");
+        void inspectPath(
+          e.payload.path,
+          e.payload.nexus_mod_id ?? undefined,
+          e.payload.version ?? undefined
+        );
+      }
+    ).then((fn) => {
+      unDl = fn;
+    });
+
+    listen<{ kind: string; message?: string; mod_id?: number }>(
+      "amm://nexus-browser-event",
+      (e) => {
+        if (e.payload.kind === "nxm_started") {
+          notify("已捕获下载链接，正在拉取压缩包...");
+        } else if (e.payload.kind === "http_started") {
+          notify("内置浏览窗已开始下载，完成后将自动接管...");
+        } else if (e.payload.kind === "error") {
+          notify(e.payload.message ?? "内置浏览窗下载失败", true);
+        }
+      }
+    ).then((fn) => {
+      unEvt = fn;
+    });
+
+    return () => {
+      if (unDl) unDl();
+      if (unEvt) unEvt();
+    };
+  }, [inspectPath, notify]);
+
   // Native window drag & drop
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
@@ -486,16 +528,29 @@ export default function App() {
     setBrowserConfirmHint(null);
     try {
       const env = await invoke<
-        UiEnvelope<{ downloaded_path: string; nexus_mod_id: number; version: string }>
+        UiEnvelope<{
+          awaiting_browser?: boolean;
+          url?: string;
+          downloaded_path?: string;
+          nexus_mod_id?: number;
+          version?: string;
+        }>
       >("cmd_nexus_download_stage", { modId });
       if (env.status === "ok" && env.data) {
-        notify("下载完成，正在打开安装预检...");
-        await inspectPath(env.data.downloaded_path, env.data.nexus_mod_id, env.data.version);
+        if (env.data.awaiting_browser) {
+          setBrowserConfirmHint(
+            `已打开内置 Nexus 浏览窗（#${modId}）：请在该小窗内点击「Slow Download（慢速下载）」，完成后小窗会自动关闭并弹出安装预检。`
+          );
+          notify("请在弹出的内置浏览窗点击 Slow Download");
+        } else if (env.data.downloaded_path) {
+          notify("下载完成，正在打开安装预检...");
+          await inspectPath(env.data.downloaded_path, env.data.nexus_mod_id, env.data.version);
+        }
       } else if (env.status === "blocked") {
         setBrowserConfirmHint(
-          `已在浏览器打开 #${modId} 的下载页面：请点击网页里的「Mod Manager Download → Slow Download」，浏览器确认后会自动回传给 PBZ-AMM 并开始安装预检。`
+          `请在内置浏览窗或浏览器点击「Slow Download（慢速下载）」，完成后会自动回传给 PBZ-AMM 并开始安装预检。`
         );
-        notify("请在浏览器点击 Slow Download，随后会自动回传安装");
+        notify("请点击网页里的 Slow Download 确认下载");
         await refreshDashboard();
       } else {
         notify(env.error ?? "下载失败，可尝试点「打开网页」手动下载压缩包后拖入窗口", true);

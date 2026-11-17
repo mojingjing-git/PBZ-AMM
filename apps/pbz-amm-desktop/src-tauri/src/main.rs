@@ -5,7 +5,7 @@
 
 use pbz_amm_core::deployer::{InstallOptions, ModManager};
 use pbz_amm_core::error::{AmmError, ResponseStatus};
-use pbz_amm_core::nexus;
+use pbz_amm_core::nexus::{self, NxmUri};
 use pbz_amm_core::telemetry::{
     AgentActivityEvent, activity_log_path, read_recent_activity, resolve_default_data_dir,
     resolve_sibling_cli_exe,
@@ -15,8 +15,14 @@ use serde_json::{Value, json};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::Duration;
-use tauri::Emitter;
+use tauri::webview::DownloadEvent;
+use tauri::{Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
+
+struct NexusBrowserState {
+    pending_meta: Mutex<Option<(u32, String)>>,
+}
 
 #[derive(Serialize)]
 struct UiEnvelope {
@@ -465,13 +471,179 @@ async fn cmd_nexus_auth(
     .unwrap_or_else(|e| UiEnvelope::from_result::<Value>(Err(AmmError::Other(e.to_string()))))
 }
 
+fn open_nexus_browser_window(
+    app: &tauri::AppHandle,
+    raw_url: &str,
+    meta: Option<(u32, String)>,
+) -> Result<(), AmmError> {
+    let parsed_url = Url::parse(raw_url)
+        .map_err(|e| AmmError::Other(format!("无效网页链接 ({raw_url}): {e}")))?;
+
+    if let Ok(mut guard) = app.state::<NexusBrowserState>().pending_meta.lock() {
+        *guard = meta;
+    }
+
+    let app_handle = app.clone();
+    app.run_on_main_thread(move || {
+        if let Some(existing) = app_handle.get_webview_window("nexus-browser") {
+            let _ = existing.navigate(parsed_url);
+            let _ = existing.set_focus();
+            return;
+        }
+
+        let app_nav = app_handle.clone();
+        let app_dl = app_handle.clone();
+        let builder = WebviewWindowBuilder::new(
+            &app_handle,
+            "nexus-browser",
+            WebviewUrl::External(parsed_url),
+        )
+        .title("Nexus Mods · 内置浏览窗（点击 Slow Download 后自动接管安装）")
+        .inner_size(1080.0, 760.0)
+        .center()
+        .on_navigation(move |url| {
+            if !url.scheme().eq_ignore_ascii_case("nxm") {
+                return true;
+            }
+
+            let raw_nxm = url.as_str().to_string();
+            if let Some(w) = app_nav.get_webview_window("nexus-browser") {
+                let _ = w.close();
+            }
+
+            let app_bg = app_nav.clone();
+            std::thread::spawn(move || match NxmUri::parse(&raw_nxm) {
+                Ok(parsed) => {
+                    let _ = app_bg.emit(
+                        "amm://nexus-browser-event",
+                        json!({ "kind": "nxm_started", "mod_id": parsed.mod_id }),
+                    );
+                    let res = (|| -> Result<Value, AmmError> {
+                        let api_key = nexus::load_api_key()?;
+                        let files = nexus::list_mod_files(&api_key, parsed.mod_id)?;
+                        let meta = files.into_iter().find(|f| f.file_id == parsed.file_id);
+                        let fname = meta
+                            .as_ref()
+                            .map(|f| f.file_name.clone())
+                            .unwrap_or_else(|| {
+                                format!("nexus-{}-{}.zip", parsed.mod_id, parsed.file_id)
+                            });
+                        let ver = meta.map(|f| f.version);
+
+                        let mgr = ModManager::open(&shared_data_dir())?;
+                        let dest = mgr.downloads_dir().join(fname);
+                        drop(mgr);
+
+                        nexus::download_mod_file(
+                            &api_key,
+                            parsed.mod_id,
+                            parsed.file_id,
+                            parsed.key.as_deref(),
+                            parsed.expires.as_deref(),
+                            &dest,
+                        )?;
+                        Ok(json!({
+                            "path": dest,
+                            "nexus_mod_id": parsed.mod_id,
+                            "version": ver,
+                        }))
+                    })();
+
+                    match res {
+                        Ok(payload) => {
+                            let _ = app_bg.emit("amm://nexus-downloaded", payload);
+                        }
+                        Err(e) => {
+                            let _ = app_bg.emit(
+                                "amm://nexus-browser-event",
+                                json!({ "kind": "error", "message": e.to_string() }),
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = app_bg.emit(
+                        "amm://nexus-browser-event",
+                        json!({ "kind": "error", "message": e.to_string() }),
+                    );
+                }
+            });
+
+            false
+        })
+        .on_download(move |_webview, event| match event {
+            DownloadEvent::Requested { url: _, destination } => {
+                let downloads_dir = shared_data_dir().join("downloads");
+                let _ = std::fs::create_dir_all(&downloads_dir);
+                let fname = destination
+                    .file_name()
+                    .map(|n| n.to_os_string())
+                    .unwrap_or_else(|| std::ffi::OsString::from("nexus-mod.zip"));
+                *destination = downloads_dir.join(fname);
+                let _ = app_dl.emit(
+                    "amm://nexus-browser-event",
+                    json!({ "kind": "http_started" }),
+                );
+                true
+            }
+            DownloadEvent::Finished {
+                url: _,
+                path,
+                success,
+            } => {
+                if success && let Some(downloaded_path) = path {
+                    let (nx_id, ver) = app_dl
+                        .state::<NexusBrowserState>()
+                        .pending_meta
+                        .lock()
+                        .ok()
+                        .and_then(|g| g.clone())
+                        .map(|(id, v)| (Some(id), Some(v)))
+                        .unwrap_or((None, None));
+                    if let Some(w) = app_dl.get_webview_window("nexus-browser") {
+                        let _ = w.close();
+                    }
+                    let _ = app_dl.emit(
+                        "amm://nexus-downloaded",
+                        json!({
+                            "path": downloaded_path,
+                            "nexus_mod_id": nx_id,
+                            "version": ver,
+                        }),
+                    );
+                } else if !success {
+                    let _ = app_dl.emit(
+                        "amm://nexus-browser-event",
+                        json!({ "kind": "error", "message": "内置浏览窗下载未能完成，请重试" }),
+                    );
+                }
+                true
+            }
+            _ => true,
+        });
+
+        if let Err(e) = builder.build() {
+            let _ = app_handle.emit(
+                "amm://nexus-browser-event",
+                json!({ "kind": "error", "message": format!("创建内置浏览窗失败: {e}") }),
+            );
+        }
+    })
+    .map_err(|e| AmmError::Other(format!("调度内置浏览窗失败: {e}")))
+}
+
 #[tauri::command]
-async fn cmd_open_url(url: String) -> UiEnvelope {
+async fn cmd_open_url(app: tauri::AppHandle, url: String) -> UiEnvelope {
     let trimmed = url.trim().to_string();
     if !trimmed.starts_with("https://") && !trimmed.starts_with("http://") {
         return UiEnvelope::from_result::<Value>(Err(AmmError::Other(
             "仅允许打开 http(s) 网页链接".to_string(),
         )));
+    }
+    if trimmed.contains("nexusmods.com") {
+        let res = open_nexus_browser_window(&app, &trimmed, None)
+            .map(|_| json!({ "opened_in_app": trimmed }));
+        return UiEnvelope::from_result(res);
     }
     let res = std::process::Command::new("rundll32")
         .args(["url.dll,FileProtocolHandler", &trimmed])
@@ -482,17 +654,12 @@ async fn cmd_open_url(url: String) -> UiEnvelope {
 }
 
 #[tauri::command]
-async fn cmd_nexus_download_stage(mod_id: u32) -> UiEnvelope {
+async fn cmd_nexus_download_stage(app: tauri::AppHandle, mod_id: u32) -> UiEnvelope {
     tauri::async_runtime::spawn_blocking(move || {
         let data_dir = shared_data_dir();
         let res = (|| -> Result<Value, AmmError> {
             let api_key = nexus::load_api_key()?;
-            if let Ok(acc) = nexus::validate_account(&api_key)
-                && !acc.is_premium
-                && !nexus::is_nxm_protocol_registered()
-            {
-                let _ = nexus::register_nxm_protocol(&sibling_cli_exe());
-            }
+            let account = nexus::validate_account(&api_key)?;
             let files = nexus::list_mod_files(&api_key, mod_id)?;
             let chosen = files
                 .iter()
@@ -501,12 +668,27 @@ async fn cmd_nexus_download_stage(mod_id: u32) -> UiEnvelope {
                 .or_else(|| files.into_iter().next())
                 .ok_or_else(|| AmmError::Other("该 Mod 暂无可下载主文件".to_string()))?;
 
+            if !account.is_premium {
+                let web_url = format!(
+                    "https://www.nexusmods.com/phantombladezero/mods/{mod_id}?tab=files&file_id={}&nmm=1",
+                    chosen.file_id
+                );
+                open_nexus_browser_window(&app, &web_url, Some((mod_id, chosen.version.clone())))?;
+                return Ok(json!({
+                    "awaiting_browser": true,
+                    "url": web_url,
+                    "nexus_mod_id": mod_id,
+                    "version": chosen.version,
+                }));
+            }
+
             let mgr = ModManager::open(&data_dir)?;
             let dest = mgr.downloads_dir().join(&chosen.file_name);
             drop(mgr);
 
             nexus::download_mod_file(&api_key, mod_id, chosen.file_id, None, None, &dest)?;
             Ok(json!({
+                "awaiting_browser": false,
                 "downloaded_path": dest,
                 "nexus_mod_id": mod_id,
                 "version": chosen.version,
@@ -571,6 +753,9 @@ fn spawn_activity_tailer(app_handle: tauri::AppHandle) {
 
 fn main() {
     tauri::Builder::default()
+        .manage(NexusBrowserState {
+            pending_meta: Mutex::new(None),
+        })
         .setup(|app| {
             spawn_activity_tailer(app.handle().clone());
             Ok(())

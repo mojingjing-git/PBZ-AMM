@@ -327,9 +327,21 @@ impl ModManager {
             .version_override
             .clone()
             .unwrap_or_else(|| now.format("local-%Y%m%d%H%M%S").to_string());
-        let slot_name = format!("v-{}", now.format("%Y%m%d-%H%M%S-%3f"));
+        let base_slot = format!("v-{}", now.format("%Y%m%d-%H%M%S-%3f"));
+        let mut seq = 0u32;
+        let (slot_name, slot_abs) = loop {
+            let cand = if seq == 0 {
+                base_slot.clone()
+            } else {
+                format!("{base_slot}-{seq}")
+            };
+            let abs = self.vault_dir().join(&mod_id).join(&cand);
+            if !abs.exists() {
+                break (cand, abs);
+            }
+            seq += 1;
+        };
         let vault_rel = format!("{mod_id}/{slot_name}");
-        let slot_abs = self.vault_dir().join(&mod_id).join(&slot_name);
         fs::create_dir_all(&slot_abs)?;
 
         // Sync any live user-modified config files from existing deployment before rotating!
@@ -380,17 +392,19 @@ impl ModManager {
             installed_at: now,
         };
 
-        let previous_slot = if let Some(mut old_mod) = self.state.mods.remove(&mod_id) {
-            // Garbage-collect superseded `previous` directory so we keep current + 1 rollback version cleanly
-            if let Some(expired) = old_mod.previous.take() {
-                let _ = fs::remove_dir_all(self.vault_dir().join(&expired.vault_rel_dir));
-            }
-            Some(old_mod.current)
-        } else {
-            None
-        };
+        let (previous_slot, expired_vault_rel, existing_nexus_id) =
+            if let Some(mut old_mod) = self.state.mods.remove(&mod_id) {
+                let expired = old_mod.previous.take().map(|p| p.vault_rel_dir);
+                let prev_nx = old_mod.nexus_mod_id;
+                (Some(old_mod.current), expired, prev_nx)
+            } else {
+                (None, None, None)
+            };
 
-        let nexus_id = opts.nexus_mod_id.or(report.nexus_mod_id_hint);
+        let nexus_id = opts
+            .nexus_mod_id
+            .or(report.nexus_mod_id_hint)
+            .or(existing_nexus_id);
         let record = InstalledMod {
             id: mod_id.clone(),
             name: display_name,
@@ -426,13 +440,16 @@ impl ModManager {
 
         self.reconcile_deployment(game)?;
         self.save()?;
+        // Garbage-collect superseded `previous` directory only after reconcile + save succeed
+        if let Some(expired_rel) = expired_vault_rel {
+            let _ = fs::remove_dir_all(self.vault_dir().join(expired_rel));
+        }
         Ok(record)
     }
 
     /// Roll back a mod to its retained previous version.
     pub fn rollback_mod(&mut self, game: &GameInstall, mod_id: &str) -> Result<InstalledMod> {
         game.ensure_game_closed()?;
-        self.capture_live_user_configs(game, mod_id)?;
 
         let vdir = self.vault_dir();
         let m = self
@@ -447,10 +464,10 @@ impl ModManager {
 
         let broken_current = std::mem::replace(&mut m.current, prev);
         let updated = m.clone();
-        let _ = fs::remove_dir_all(vdir.join(&broken_current.vault_rel_dir));
 
         self.reconcile_deployment(game)?;
         self.save()?;
+        let _ = fs::remove_dir_all(vdir.join(&broken_current.vault_rel_dir));
         Ok(updated)
     }
 
@@ -473,7 +490,7 @@ impl ModManager {
             .state
             .profiles
             .get_mut(&prof_id)
-            .ok_or_else(|| AmmError::ProfileNotFound(prof_id))?;
+            .ok_or(AmmError::ProfileNotFound(prof_id))?;
 
         if let Some(entry) = prof.entries.iter_mut().find(|e| e.mod_id == mod_id) {
             entry.enabled = enabled;
@@ -723,8 +740,9 @@ impl ModManager {
         let mut adopted = Vec::new();
         for cand in selected {
             let temp = tempfile::tempdir_in(self.ensure_temp_root()?)?;
-            // Reconstruct relative tree inside temp dir so `install_source` classifies it identically,
-            // then remove the original unmanaged files RIGHT BEFORE re-deploying managed links!
+            // Copy unmanaged files to temp staging first, pre-verify scanner output before removing originals,
+            // and restore originals from temp if `install_source` fails for any reason.
+            let mut backed_up: Vec<String> = Vec::new();
             for rel in &cand.game_rel_paths {
                 let abs = game.root_dir.join(rel);
                 if abs.is_file() {
@@ -733,9 +751,20 @@ impl ModManager {
                         fs::create_dir_all(p)?;
                     }
                     fs::copy(&abs, &staged)?;
+                    backed_up.push(rel.clone());
                 }
             }
-            for rel in &cand.game_rel_paths {
+
+            // Pre-validate scan before touching live game files
+            let (pre_report, _) = self.inspect_source(temp.path(), Some(game))?;
+            if pre_report.variants.is_empty() {
+                return Err(AmmError::Other(format!(
+                    "无法接管 `{}`：未识别出有效的 Mod 文件",
+                    cand.name
+                )));
+            }
+
+            for rel in &backed_up {
                 let abs = game.root_dir.join(rel);
                 let _ = fs::remove_file(&abs);
             }
@@ -749,8 +778,22 @@ impl ModManager {
                 allow_conflicts: true,
                 allow_uncertain_files: true,
             };
-            let m = self.install_source(game, temp.path(), &opts)?;
-            adopted.push(m);
+            match self.install_source(game, temp.path(), &opts) {
+                Ok(m) => adopted.push(m),
+                Err(e) => {
+                    for rel in &backed_up {
+                        let staged = temp.path().join(rel);
+                        let abs = game.root_dir.join(rel);
+                        if staged.is_file() {
+                            if let Some(p) = abs.parent() {
+                                let _ = fs::create_dir_all(p);
+                            }
+                            let _ = fs::copy(&staged, &abs);
+                        }
+                    }
+                    return Err(e);
+                }
+            }
         }
 
         Ok(adopted)
@@ -941,10 +984,11 @@ impl ModManager {
                         .vault_dir()
                         .join(&installed.current.vault_rel_dir)
                         .join(&sf.source_rel);
-                    if vault_cfg != live_path && let Ok(live_hash) = sha256_file(&live_path) {
-                        if live_hash != sf.sha256 {
-                            let _ = fs::copy(&live_path, &vault_cfg);
-                        }
+                    if vault_cfg != live_path
+                        && let Ok(live_hash) = sha256_file(&live_path)
+                        && live_hash != sf.sha256
+                    {
+                        let _ = fs::copy(&live_path, &vault_cfg);
                     }
                 }
             }
@@ -1017,7 +1061,9 @@ impl ModManager {
             }
         }
 
-        for mod_id in &enabled_ids {
+        // Step 2: Deploy enabled mods highest-priority first so higher priority wins on allowed overrides,
+        // while never overwriting pre-existing unmanaged external files.
+        for mod_id in enabled_ids.iter().rev() {
             let Some(m) = self.state.mods.get(mod_id) else {
                 continue;
             };

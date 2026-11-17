@@ -126,7 +126,8 @@ fn tool_definitions() -> Value {
                 "type": "object",
                 "required": ["path"],
                 "properties": {
-                    "path": { "type": "string", "description": "压缩包 (.zip/.7z/.rar/.pak) 或目录路径" }
+                    "path": { "type": "string", "description": "压缩包 (.zip/.7z/.rar/.pak) 或目录路径" },
+                    "game_dir": { "type": "string", "description": "可选，指定游戏根目录" }
                 }
             }
         },
@@ -139,8 +140,12 @@ fn tool_definitions() -> Value {
                 "properties": {
                     "path": { "type": "string" },
                     "select_variant": { "type": "string", "description": "多变体包中要安装的变体名" },
+                    "name": { "type": "string", "description": "可选，自定义 Mod 显示名称" },
+                    "nexus_id": { "type": "integer", "description": "可选，关联 Nexus Mod ID" },
+                    "version": { "type": "string", "description": "可选，版本号标签" },
                     "allow_conflicts": { "type": "boolean", "default": false },
-                    "allow_uncertain": { "type": "boolean", "default": false }
+                    "allow_uncertain": { "type": "boolean", "default": false },
+                    "game_dir": { "type": "string", "description": "可选，指定游戏根目录" }
                 }
             }
         },
@@ -251,6 +256,18 @@ fn dispatch_tool(
                         .unwrap_or_default(),
                 );
                 let opts = InstallOptions {
+                    name_override: args
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .map(ToString::to_string),
+                    nexus_mod_id: args
+                        .get("nexus_id")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n as u32),
+                    version_override: args
+                        .get("version")
+                        .and_then(|v| v.as_str())
+                        .map(ToString::to_string),
                     select_variant: args
                         .get("select_variant")
                         .and_then(|v| v.as_str())
@@ -366,11 +383,17 @@ fn dispatch_tool(
         ),
     );
 
+    let arg_game_override = args
+        .get("game_dir")
+        .and_then(|v| v.as_str())
+        .map(PathBuf::from);
+    let effective_game_dir = arg_game_override.as_deref().or(default_game_dir);
+
     match run() {
         Ok(v) => {
             let extra = if name == "pbz_inspect" {
                 let p = PathBuf::from(args.get("path").and_then(|x| x.as_str()).unwrap_or_default());
-                json!({ "inspect": build_inspect_ui_payload(data_dir, &p, default_game_dir) })
+                json!({ "inspect": build_inspect_ui_payload(data_dir, &p, effective_game_dir) })
             } else if name == "pbz_nexus_search" {
                 json!({
                     "keyword": args.get("keyword").and_then(|x| x.as_str()).unwrap_or(""),
@@ -396,7 +419,7 @@ fn dispatch_tool(
         Err(AmmError::NeedsSelection(prompt)) => {
             let inspect_payload = if name == "pbz_install" {
                 let p = PathBuf::from(args.get("path").and_then(|x| x.as_str()).unwrap_or_default());
-                build_inspect_ui_payload(data_dir, &p, default_game_dir)
+                build_inspect_ui_payload(data_dir, &p, effective_game_dir)
                     .map(|insp| json!({ "inspect": insp }))
             } else {
                 None
@@ -419,11 +442,15 @@ fn dispatch_tool(
             })
         }
         Err(err) => {
+            let phase = match err.status() {
+                pbz_amm_core::error::ResponseStatus::Blocked => ActivityPhase::Blocked,
+                _ => ActivityPhase::Failed,
+            };
             emit_activity(
                 data_dir,
                 &AgentActivityEvent::new(
                     "mcp",
-                    ActivityPhase::Failed,
+                    phase,
                     name,
                     tab_hint,
                     target_sel.as_deref(),

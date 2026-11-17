@@ -3233,7 +3233,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 [[package]]
 name = "repak"
 version = "0.2.3"
-source = "git+https://github.com/trumank/repak.git#355b5f62f51959c7cc6dd5a51708646ef483065d"
+source = "git+https://github.com/trumank/repak.git?rev=355b5f62f51959c7cc6dd5a51708646ef483065d#355b5f62f51959c7cc6dd5a51708646ef483065d"
 dependencies = [
  "byteorder",
  "hex",

@@ -1229,6 +1229,13 @@ body,
   color: #fff8f6;
 }
 
+[data-theme="light"] .wuxia-btn.primary-crimson:hover:not(:disabled) {
+  background: linear-gradient(135deg, #c73239, #961c22);
+  border-color: #701318;
+  color: #fff8f6;
+  box-shadow: 0 3px 14px rgba(166, 36, 43, 0.35);
+}
+
 [data-theme="light"] .wuxia-btn-mini {
   color: #6e4512;
   background: rgba(198, 158, 99, 0.2);
@@ -1344,12 +1351,13 @@ body,
 }
 
 [data-theme="light"] .modal-header {
+  background: linear-gradient(90deg, rgba(166, 36, 43, 0.12), rgba(198, 158, 99, 0.08), transparent);
   border-bottom-color: rgba(153, 107, 43, 0.28);
 }
 
 [data-theme="light"] .modal-header h2 {
-  color: #fff8ed;
-  text-shadow: 0 1px 6px rgba(96, 14, 18, 0.72);
+  color: #241f19;
+  text-shadow: none;
 }
 
 [data-theme="light"] .manifest-code-box {

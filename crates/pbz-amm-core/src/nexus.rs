@@ -88,6 +88,11 @@ impl NxmUri {
             return Err(AmmError::InvalidNxmUri(raw.to_string()));
         }
         let domain = segs[0].to_ascii_lowercase();
+        if domain != PBZ_NEXUS_DOMAIN {
+            return Err(AmmError::InvalidNxmUri(format!(
+                "仅支持《影之刃零》({PBZ_NEXUS_DOMAIN}) 的 nxm:// 链接，收到: {domain}"
+            )));
+        }
         let mod_id: u32 = segs[2]
             .parse()
             .map_err(|_| AmmError::InvalidNxmUri(raw.to_string()))?;
@@ -151,6 +156,12 @@ pub fn clear_api_key() -> Result<()> {
 
 /// Register per-user `HKCU\Software\Classes\nxm` URL handler (zero Administrator UAC prompt needed).
 pub fn register_nxm_protocol(cli_exe_path: &Path) -> Result<()> {
+    if !cli_exe_path.is_file() {
+        return Err(AmmError::Other(format!(
+            "未找到 pbz-amm.exe ({}), 无法注册 nxm:// 协议",
+            cli_exe_path.display()
+        )));
+    }
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (nxm_key, _) = hkcu.create_subkey(r"Software\Classes\nxm")?;
     nxm_key.set_value("", &"URL:Nexus Mod Manager Protocol (PBZ-AMM)")?;
@@ -162,7 +173,7 @@ pub fn register_nxm_protocol(cli_exe_path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Check whether `HKCU\Software\Classes\nxm` is registered to `pbz-amm`.
+/// Check whether `HKCU\Software\Classes\nxm` is registered to an existing `pbz-amm` binary.
 pub fn is_nxm_protocol_registered() -> bool {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let Ok(cmd_key) = hkcu.open_subkey(r"Software\Classes\nxm\shell\open\command") else {
@@ -172,7 +183,30 @@ pub fn is_nxm_protocol_registered() -> bool {
         return false;
     };
     let lower = val.to_ascii_lowercase();
-    lower.contains("pbz-amm") && lower.contains("handle-nxm")
+    if !lower.contains("pbz-amm") || !lower.contains("handle-nxm") {
+        return false;
+    }
+    let exe_part = if let Some(rest) = val.trim_start().strip_prefix('"') {
+        rest.split('"').next().unwrap_or("")
+    } else {
+        val.split_whitespace().next().unwrap_or("")
+    };
+    !exe_part.is_empty() && Path::new(exe_part).is_file()
+}
+
+/// Sanitize a remote Nexus `file_name` so it can never traverse outside `downloads/`.
+pub fn safe_download_filename(raw: &str, mod_id: u32, file_id: u64) -> String {
+    let leaf = raw
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .trim()
+        .replace([':', '*', '?', '"', '<', '>', '|', '\0'], "_");
+    if leaf.is_empty() || leaf == "." || leaf == ".." {
+        format!("nexus-{mod_id}-{file_id}.zip")
+    } else {
+        leaf
+    }
 }
 
 /// Resolve the current user's Windows Downloads directory (supports custom relocated folders).
@@ -182,11 +216,18 @@ pub fn resolve_windows_downloads_dir() -> Option<std::path::PathBuf> {
         hkcu.open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders")
         && let Ok(raw) = folders.get_value::<String, _>("{374DE290-123F-4565-9164-39C4925E467B}")
     {
-        let expanded = if let Ok(profile) = std::env::var("USERPROFILE") {
-            raw.replace("%USERPROFILE%", &profile)
-        } else {
-            raw
-        };
+        let mut expanded = raw;
+        for var_name in ["USERPROFILE", "OneDrive", "OneDriveConsumer"] {
+            if let Ok(val) = std::env::var(var_name) {
+                let needle = format!("%{var_name}%");
+                if let Some(idx) = expanded
+                    .to_ascii_lowercase()
+                    .find(&needle.to_ascii_lowercase())
+                {
+                    expanded.replace_range(idx..idx + needle.len(), &val);
+                }
+            }
+        }
         let p = std::path::PathBuf::from(expanded);
         if p.is_dir() {
             return Some(p);
@@ -471,6 +512,16 @@ pub fn download_mod_file(
         "{NEXUS_REST_V1_BASE}/games/{PBZ_NEXUS_DOMAIN}/mods/{mod_id}/files/{file_id}/download_link.json"
     );
     if let (Some(k), Some(exp)) = (nxm_key, nxm_expires) {
+        let valid_token = |s: &str| {
+            !s.is_empty()
+                && s.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        };
+        if !valid_token(k) || !exp.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(AmmError::InvalidNxmUri(
+                "nxm:// 下载令牌参数格式无效".to_string(),
+            ));
+        }
         url.push_str(&format!("?key={k}&expires={exp}"));
     } else {
         let account = validate_account(api_key)?;

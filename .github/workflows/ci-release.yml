@@ -1,0 +1,68 @@
+name: CI & Windows Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify-and-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: apps/pbz-amm-desktop/pnpm-lock.yaml
+
+      - name: Build Desktop Frontend
+        working-directory: apps/pbz-amm-desktop
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run Workspace Tests
+        run: cargo test --workspace
+
+      - name: Build Release Binaries
+        run: cargo build --release --workspace
+
+      - name: Package Portable Release Archive
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $stage = "pbz-amm-windows-x64"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "target/release/pbz-amm.exe" "$stage/pbz-amm.exe"
+          Copy-Item "target/release/pbz-amm-desktop.exe" "$stage/pbz-amm-desktop.exe"
+          Copy-Item "README.md" "$stage/README.md"
+          Copy-Item "LICENSE" "$stage/LICENSE"
+          Copy-Item -Recurse "skills" "$stage/skills"
+          Compress-Archive -Path "$stage/*" -DestinationPath "PBZ-AMM-windows-x64.zip" -Force
+
+      - name: Upload GitHub Release Assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: PBZ-AMM-windows-x64.zip

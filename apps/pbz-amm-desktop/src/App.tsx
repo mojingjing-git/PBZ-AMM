@@ -108,7 +108,13 @@ export default function App() {
   const [confirmRestoreId, setConfirmRestoreId] = useState<string | null>(null);
 
   const [nexusAccount, setNexusAccount] = useState<NexusAccountInfo | null>(null);
-  const [useEmbeddedBrowser, setUseEmbeddedBrowser] = useState(false);
+  const [useEmbeddedBrowser, setUseEmbeddedBrowser] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("pbz_amm_embedded_browser") === "1";
+    } catch {
+      return false;
+    }
+  });
   const [copiedMcp, setCopiedMcp] = useState(false);
 
   // 1 + A: Clean Live Agent Sync State
@@ -124,10 +130,30 @@ export default function App() {
   const hideBannerTimerRef = useRef<number | null>(null);
   const tabRef = useRef<NavTab>(tab);
   tabRef.current = tab;
+  const busyRef = useRef<boolean>(busy);
+  busyRef.current = busy;
+  const authAttemptedRef = useRef<boolean>(false);
 
   const notify = useCallback((text: string, isErr = false) => {
     setToast({ text, isErr });
   }, []);
+
+  const withBusy = useCallback(async <T,>(fn: () => Promise<T>): Promise<T> => {
+    setBusy(true);
+    try {
+      return await fn();
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("pbz_amm_embedded_browser", useEmbeddedBrowser ? "1" : "0");
+    } catch {
+      // ignore storage failure
+    }
+  }, [useEmbeddedBrowser]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -182,12 +208,13 @@ export default function App() {
   // Subscribe to live CLI / MCP Agent events (1 + A: Auto tab follow + highlight + Dual-end Modal)
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
+    let cancelled = false;
     let unAct: (() => void) | undefined;
     let unState: (() => void) | undefined;
 
     listen<AgentActivityEvent>("amm://activity", (e) => {
       const ev = e.payload;
-      setActivityLog((prev) => [...prev.slice(-59), ev]);
+      setActivityLog((prev) => (prev.some((x) => x.id === ev.id) ? prev : [...prev.slice(-59), ev]));
       setActiveBanner({ actor: ev.actor, summary: ev.summary, phase: ev.phase });
 
       const activeTag = document.activeElement?.tagName;
@@ -205,10 +232,15 @@ export default function App() {
       }
 
       if (ev.target_selector) {
-        setPulsedKey(ev.target_selector);
+        const selector = ev.target_selector;
+        setPulsedKey(selector);
         window.setTimeout(() => {
-          const el = document.querySelector(ev.target_selector!) as HTMLElement | null;
-          el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          try {
+            const el = document.querySelector(selector) as HTMLElement | null;
+            el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          } catch {
+            // ignore invalid selector from external input
+          }
         }, 120);
       }
 
@@ -243,16 +275,19 @@ export default function App() {
         window.clearTimeout(hideBannerTimerRef.current);
       }
     }).then((fn) => {
-      unAct = fn;
+      if (cancelled) fn();
+      else unAct = fn;
     });
 
     listen("amm://state-changed", () => {
       void refreshDashboard();
     }).then((fn) => {
-      unState = fn;
+      if (cancelled) fn();
+      else unState = fn;
     });
 
     return () => {
+      cancelled = true;
       if (unAct) unAct();
       if (unState) unState();
     };
@@ -275,9 +310,10 @@ export default function App() {
     [notify]
   );
 
-  // Listen for in-app embedded Nexus browser download completions
+  // Listen for in-app embedded Nexus browser / Downloads watcher completions
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
+    let cancelled = false;
     let unDl: (() => void) | undefined;
     let unEvt: (() => void) | undefined;
 
@@ -285,7 +321,7 @@ export default function App() {
       "amm://nexus-downloaded",
       (e) => {
         setBrowserConfirmHint(null);
-        notify("内置浏览窗下载完成，正在打开安装预检...");
+        notify("下载完成，正在打开安装预检...");
         void inspectPath(
           e.payload.path,
           e.payload.nexus_mod_id ?? undefined,
@@ -293,7 +329,8 @@ export default function App() {
         );
       }
     ).then((fn) => {
-      unDl = fn;
+      if (cancelled) fn();
+      else unDl = fn;
     });
 
     listen<{ kind: string; message?: string; mod_id?: number }>(
@@ -308,10 +345,12 @@ export default function App() {
         }
       }
     ).then((fn) => {
-      unEvt = fn;
+      if (cancelled) fn();
+      else unEvt = fn;
     });
 
     return () => {
+      cancelled = true;
       if (unDl) unDl();
       if (unEvt) unEvt();
     };
@@ -320,6 +359,7 @@ export default function App() {
   // Native window drag & drop
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
+    let cancelled = false;
     let unlisten: (() => void) | undefined;
     getCurrentWebview()
       .onDragDropEvent((event) => {
@@ -328,16 +368,18 @@ export default function App() {
           setDragging(true);
         } else if (p.type === "drop") {
           setDragging(false);
-          if (p.paths.length > 0) void inspectPath(p.paths[0]);
+          if (!busyRef.current && p.paths.length > 0) void inspectPath(p.paths[0]);
         } else {
           setDragging(false);
         }
       })
       .then((fn) => {
-        unlisten = fn;
+        if (cancelled) fn();
+        else unlisten = fn;
       })
       .catch(() => {});
     return () => {
+      cancelled = true;
       if (unlisten) unlisten();
     };
   }, [inspectPath]);
@@ -371,10 +413,12 @@ export default function App() {
   useEffect(() => {
     if (!dash) return;
     if (!dash.has_nexus_key) {
+      authAttemptedRef.current = false;
       setNexusAccount(null);
       return;
     }
-    if (nexusAccount) return;
+    if (nexusAccount || authAttemptedRef.current) return;
+    authAttemptedRef.current = true;
     invoke<UiEnvelope<{ account?: NexusAccountInfo }>>("cmd_nexus_auth", {
       apiKey: null,
       clear: false,
@@ -718,15 +762,15 @@ export default function App() {
                 data-agent-id={`profile:${p.id}`}
                 className={`waist-plaque ${dash?.active_profile_id === p.id ? "active" : ""}`}
                 disabled={busy || !dash?.game}
-                onClick={async () => {
+                onClick={() => {
                   if (dash?.active_profile_id === p.id) return;
-                  setBusy(true);
-                  const env = await invoke<UiEnvelope>("cmd_switch_profile", { id: p.id });
-                  setBusy(false);
-                  if (env.status === "ok") {
-                    notify(`已切换至「${p.display_name}」（游戏存档保持共用）`);
-                    await refreshDashboard();
-                  } else notify(env.error ?? "切换配置失败", true);
+                  void withBusy(async () => {
+                    const env = await invoke<UiEnvelope>("cmd_switch_profile", { id: p.id });
+                    if (env.status === "ok") {
+                      notify(`已切换至「${p.display_name}」（游戏存档保持共用）`);
+                      await refreshDashboard();
+                    } else notify(env.error ?? "切换配置失败", true);
+                  });
                 }}
                 title={p.description || p.display_name}
               >
@@ -839,16 +883,16 @@ export default function App() {
                       data-agent-id="btn-adopt-wild"
                       className="wuxia-btn gold"
                       disabled={busy || selectedWildIds.length === 0}
-                      onClick={async () => {
-                        setBusy(true);
-                        const env = await invoke<UiEnvelope>("cmd_adopt_mods", { ids: selectedWildIds });
-                        setBusy(false);
-                        if (env.status === "ok") {
-                          setSelectedWildIds([]);
-                          notify("所选 Mod 已纳入管理");
-                          await refreshDashboard();
-                        } else notify(env.error ?? "纳入管理失败", true);
-                      }}
+                      onClick={() =>
+                        void withBusy(async () => {
+                          const env = await invoke<UiEnvelope>("cmd_adopt_mods", { ids: selectedWildIds });
+                          if (env.status === "ok") {
+                            setSelectedWildIds([]);
+                            notify("所选 Mod 已纳入管理");
+                            await refreshDashboard();
+                          } else notify(env.error ?? "纳入管理失败", true);
+                        })
+                      }
                     >
                       纳入管理 ({selectedWildIds.length})
                     </button>
@@ -929,16 +973,16 @@ export default function App() {
                             agentId={`mod-switch:${mod.id}`}
                             checked={isOn}
                             disabled={busy}
-                            onChange={async () => {
-                              setBusy(true);
-                              const env = await invoke<UiEnvelope>("cmd_set_mod_enabled", {
-                                modId: mod.id,
-                                enabled: !isOn,
-                              });
-                              setBusy(false);
-                              if (env.status === "ok") await refreshDashboard();
-                              else notify(env.error ?? "切换状态失败", true);
-                            }}
+                            onChange={() =>
+                              void withBusy(async () => {
+                                const env = await invoke<UiEnvelope>("cmd_set_mod_enabled", {
+                                  modId: mod.id,
+                                  enabled: !isOn,
+                                });
+                                if (env.status === "ok") await refreshDashboard();
+                                else notify(env.error ?? "切换状态失败", true);
+                              })
+                            }
                             title={isOn ? "点击在当前配置中停用" : "点击在当前配置中启用"}
                           />
                           <div>
@@ -974,17 +1018,17 @@ export default function App() {
                             <button
                               className="wuxia-btn"
                               disabled={busy}
-                              onClick={async () => {
-                                setBusy(true);
-                                const env = await invoke<UiEnvelope>("cmd_rollback_mod", {
-                                  modId: mod.id,
-                                });
-                                setBusy(false);
-                                if (env.status === "ok") {
-                                  notify(`已回退至上一版本 v${mod.previous!.version}`);
-                                  await refreshDashboard();
-                                } else notify(env.error ?? "回退失败", true);
-                              }}
+                              onClick={() =>
+                                void withBusy(async () => {
+                                  const env = await invoke<UiEnvelope>("cmd_rollback_mod", {
+                                    modId: mod.id,
+                                  });
+                                  if (env.status === "ok") {
+                                    notify(`已回退至上一版本 v${mod.previous!.version}`);
+                                    await refreshDashboard();
+                                  } else notify(env.error ?? "回退失败", true);
+                                })
+                              }
                             >
                               <RotateCcw size={13} />
                               回退 v{mod.previous.version}
@@ -994,17 +1038,17 @@ export default function App() {
                             className="wuxia-btn primary-crimson"
                             style={{ padding: "6px 10px" }}
                             disabled={busy}
-                            onClick={async () => {
-                              setBusy(true);
-                              const env = await invoke<UiEnvelope>("cmd_remove_mod", {
-                                modId: mod.id,
-                              });
-                              setBusy(false);
-                              if (env.status === "ok") {
-                                notify(`已卸载：${mod.name}`);
-                                await refreshDashboard();
-                              } else notify(env.error ?? "卸载失败", true);
-                            }}
+                            onClick={() =>
+                              void withBusy(async () => {
+                                const env = await invoke<UiEnvelope>("cmd_remove_mod", {
+                                  modId: mod.id,
+                                });
+                                if (env.status === "ok") {
+                                  notify(`已卸载：${mod.name}`);
+                                  await refreshDashboard();
+                                } else notify(env.error ?? "卸载失败", true);
+                              })
+                            }
                             title="卸载此 Mod"
                           >
                             <Trash2 size={13} />
@@ -1069,18 +1113,20 @@ export default function App() {
                     <button
                       className="wuxia-btn"
                       style={{ padding: "4px 11px", fontSize: 12 }}
-                      onClick={async () => {
-                        setBusy(true);
-                        const env = await invoke<UiEnvelope<NexusModDetailsData>>(
-                          "cmd_nexus_mod_details",
-                          { modId: fw.nxId }
-                        );
-                        setBusy(false);
-                        if (env.status === "ok" && env.data) {
-                          setNxDetails(env.data);
-                          setTab("nexus");
-                        }
-                      }}
+                      onClick={() =>
+                        void withBusy(async () => {
+                          const env = await invoke<UiEnvelope<NexusModDetailsData>>(
+                            "cmd_nexus_mod_details",
+                            { modId: fw.nxId }
+                          );
+                          if (env.status === "ok" && env.data) {
+                            setNxDetails(env.data);
+                            setTab("nexus");
+                          } else {
+                            notify(env.error ?? "读取前置详情失败", true);
+                          }
+                        })
+                      }
                     >
                       查看 Nexus #{fw.nxId}
                     </button>
@@ -1188,22 +1234,24 @@ export default function App() {
                   data-agent-id="btn-nexus-updates"
                   className="wuxia-btn gold"
                   disabled={busy}
-                  onClick={async () => {
-                    setBusy(true);
-                    const env = await invoke<UiEnvelope<{ updates: UpdateEntry[] }>>(
-                      "cmd_nexus_check_updates"
-                    );
-                    setBusy(false);
-                    if (env.status === "ok" && env.data) {
-                      setNxUpdates(env.data.updates);
-                      notify(
-                        env.data.updates.length > 0
-                          ? `发现 ${env.data.updates.length} 个已装 Mod 有可用更新`
-                          : "已关联 Nexus 的 Mod 均已是最新版本"
+                  onClick={() =>
+                    void withBusy(async () => {
+                      const env = await invoke<UiEnvelope<{ updates: UpdateEntry[] }>>(
+                        "cmd_nexus_check_updates"
                       );
-                      await refreshDashboard();
-                    }
-                  }}
+                      if (env.status === "ok" && env.data) {
+                        setNxUpdates(env.data.updates);
+                        notify(
+                          env.data.updates.length > 0
+                            ? `发现 ${env.data.updates.length} 个已装 Mod 有可用更新`
+                            : "已关联 Nexus 的 Mod 均已是最新版本"
+                        );
+                        await refreshDashboard();
+                      } else {
+                        notify(env.error ?? "检查更新失败", true);
+                      }
+                    })
+                  }
                 >
                   <Sparkles size={14} />
                   检查更新
@@ -1294,15 +1342,16 @@ export default function App() {
                         <button
                           className="wuxia-btn"
                           disabled={busy}
-                          onClick={async () => {
-                            setBusy(true);
-                            const env = await invoke<UiEnvelope<NexusModDetailsData>>(
-                              "cmd_nexus_mod_details",
-                              { modId: m.mod_id }
-                            );
-                            setBusy(false);
-                            if (env.status === "ok" && env.data) setNxDetails(env.data);
-                          }}
+                          onClick={() =>
+                            void withBusy(async () => {
+                              const env = await invoke<UiEnvelope<NexusModDetailsData>>(
+                                "cmd_nexus_mod_details",
+                                { modId: m.mod_id }
+                              );
+                              if (env.status === "ok" && env.data) setNxDetails(env.data);
+                              else notify(env.error ?? "读取 Mod 详情失败", true);
+                            })
+                          }
                         >
                           详情与前置
                         </button>
@@ -1355,20 +1404,20 @@ export default function App() {
                     data-agent-id="btn-backup-create"
                     className="wuxia-btn primary-crimson"
                     disabled={busy || !dash?.game}
-                    onClick={async () => {
-                      setBusy(true);
-                      const env = await invoke<UiEnvelope>("cmd_create_backup", {
-                        note: backupNote.trim() || null,
-                        pin: backupPin,
-                      });
-                      setBusy(false);
-                      if (env.status === "ok") {
-                        setBackupNote("");
-                        setBackupPin(false);
-                        notify("存档备份已完成（含 SHA-256 完整性校验）");
-                        await refreshDashboard();
-                      } else notify(env.error ?? "备份失败", true);
-                    }}
+                    onClick={() =>
+                      void withBusy(async () => {
+                        const env = await invoke<UiEnvelope>("cmd_create_backup", {
+                          note: backupNote.trim() || null,
+                          pin: backupPin,
+                        });
+                        if (env.status === "ok") {
+                          setBackupNote("");
+                          setBackupPin(false);
+                          notify("存档备份已完成（含 SHA-256 完整性校验）");
+                          await refreshDashboard();
+                        } else notify(env.error ?? "备份失败", true);
+                      })
+                    }
                   >
                     <ArchiveRestore size={14} />
                     立即备份
@@ -1382,7 +1431,7 @@ export default function App() {
                 </WuxiaPlaque>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                  {dash?.save_backups.map((b) => (
+                  {dash?.save_backups.slice().reverse().map((b) => (
                     <div key={b.id} data-agent-id={`backup-row:${b.id}`} className="mod-scroll-row">
                       <div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1407,19 +1456,19 @@ export default function App() {
                           <button
                             className="wuxia-btn primary-crimson"
                             disabled={busy}
-                            onClick={async () => {
-                              setBusy(true);
-                              const env = await invoke<UiEnvelope>("cmd_restore_backup", {
-                                backupId: b.id,
-                                confirm: true,
-                              });
-                              setBusy(false);
-                              if (env.status === "ok") {
-                                setConfirmRestoreId(null);
-                                notify("存档已安全恢复（恢复前状态已自动留底）");
-                                await refreshDashboard();
-                              } else notify(env.error ?? "恢复失败", true);
-                            }}
+                            onClick={() =>
+                              void withBusy(async () => {
+                                const env = await invoke<UiEnvelope>("cmd_restore_backup", {
+                                  backupId: b.id,
+                                  confirm: true,
+                                });
+                                if (env.status === "ok") {
+                                  setConfirmRestoreId(null);
+                                  notify("存档已安全恢复（恢复前状态已自动留底）");
+                                  await refreshDashboard();
+                                } else notify(env.error ?? "恢复失败", true);
+                              })
+                            }
                           >
                             确认恢复
                           </button>
@@ -1492,9 +1541,13 @@ export default function App() {
                   <button
                     className="wuxia-btn"
                     onClick={() => {
-                      void navigator.clipboard.writeText(mcpSnippet);
-                      setCopiedMcp(true);
-                      window.setTimeout(() => setCopiedMcp(false), 2000);
+                      navigator.clipboard
+                        .writeText(mcpSnippet)
+                        .then(() => {
+                          setCopiedMcp(true);
+                          window.setTimeout(() => setCopiedMcp(false), 2000);
+                        })
+                        .catch(() => notify("复制失败，请手动选中下方配置文本复制", true));
                     }}
                   >
                     {copiedMcp ? <Check size={13} /> : <Copy size={13} />}
@@ -1516,6 +1569,7 @@ export default function App() {
       {/* Inspect & Install Modal (Dual-End Sync Option A) */}
       {inspectData && (
         <InspectModal
+          key={`${inspectData.payload.source_path}:${inspectData.nexusId ?? ""}`}
           payload={inspectData.payload}
           busy={busy}
           triggeredByAgent={inspectData.triggeredByAgent}
@@ -1565,26 +1619,26 @@ export default function App() {
               <button
                 className="wuxia-btn primary-crimson"
                 disabled={busy}
-                onClick={async () => {
+                onClick={() => {
                   if (!newProfId.trim() || !newProfName.trim()) {
                     return notify("请填写英文标识 ID 与显示名称", true);
                   }
-                  setBusy(true);
-                  const env = await invoke<UiEnvelope>("cmd_create_profile", {
-                    id: newProfId.trim(),
-                    name: newProfName.trim(),
-                    desc: newProfDesc.trim(),
-                    cloneActive: newProfClone,
+                  void withBusy(async () => {
+                    const env = await invoke<UiEnvelope>("cmd_create_profile", {
+                      id: newProfId.trim(),
+                      name: newProfName.trim(),
+                      desc: newProfDesc.trim(),
+                      cloneActive: newProfClone,
+                    });
+                    if (env.status === "ok") {
+                      setShowNewProfile(false);
+                      setNewProfId("");
+                      setNewProfName("");
+                      setNewProfDesc("");
+                      notify("新配置方案已创建");
+                      await refreshDashboard();
+                    } else notify(env.error ?? "创建失败", true);
                   });
-                  setBusy(false);
-                  if (env.status === "ok") {
-                    setShowNewProfile(false);
-                    setNewProfId("");
-                    setNewProfName("");
-                    setNewProfDesc("");
-                    notify("新配置方案已创建");
-                    await refreshDashboard();
-                  } else notify(env.error ?? "创建失败", true);
                 }}
               >
                 创建配置

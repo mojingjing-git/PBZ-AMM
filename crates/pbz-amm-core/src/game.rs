@@ -211,10 +211,15 @@ impl GameInstall {
             .and_then(|s| s.to_str())
             .unwrap_or("PBZ.exe");
 
-        // Query Windows tasklist filtered by image name for fast, zero-privilege detection.
-        let output = Command::new("tasklist")
-            .args(["/FI", &format!("IMAGENAME eq {exe_name}"), "/FO", "CSV", "/NH"])
-            .output();
+        // Query Windows tasklist filtered by image name for fast, zero-privilege detection without flashing a console window.
+        let mut cmd = Command::new("tasklist");
+        cmd.args(["/FI", &format!("IMAGENAME eq {exe_name}"), "/FO", "CSV", "/NH"]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000);
+        }
+        let output = cmd.output();
 
         if let Ok(out) = output {
             let stdout = String::from_utf8_lossy(&out.stdout);

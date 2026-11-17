@@ -188,6 +188,13 @@ export const NexusAuthPanel: React.FC<NexusAuthPanelProps> = ({
           </button>
         )}
       </div>
+      <div style={{ marginTop: 10 }}>
+        <SealCheck
+          checked={useEmbeddedBrowser}
+          onChange={onToggleEmbeddedBrowser}
+          label="下载与打开网页时使用内置小窗（不勾选则复用日常浏览器免重登，自动接管下载）"
+        />
+      </div>
     </WuxiaPlaque>
   );
 };

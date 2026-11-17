@@ -884,10 +884,14 @@ fn execute_cli(
                         .ok_or_else(|| AmmError::Other("无可用主文件".to_string()))?,
                 };
                 let mgr = ModManager::open(data_dir)?;
-                let dest = mgr.downloads_dir().join(&chosen.file_name);
+                let safe_name =
+                    nexus::safe_download_filename(&chosen.file_name, *mod_id, chosen.file_id);
+                let dest = mgr.downloads_dir().join(safe_name);
                 drop(mgr);
                 nexus::download_mod_file(&api_key, *mod_id, chosen.file_id, None, None, &dest)?;
                 if *install {
+                    let ver_opt = Some(chosen.version.clone());
+                    *pending_inspect = Some((dest.clone(), Some(*mod_id), ver_opt.clone()));
                     let mut mgr = ModManager::open(data_dir)?;
                     let game = mgr.resolve_game(game_override)?;
                     let inst = mgr.install_source(
@@ -895,7 +899,7 @@ fn execute_cli(
                         &dest,
                         &InstallOptions {
                             nexus_mod_id: Some(*mod_id),
-                            version_override: Some(chosen.version),
+                            version_override: ver_opt,
                             select_variant: select_variant.clone(),
                             ..Default::default()
                         },
@@ -910,10 +914,9 @@ fn execute_cli(
                 let api_key = nexus::load_api_key()?;
                 let files = nexus::list_mod_files(&api_key, parsed.mod_id)?;
                 let meta = files.into_iter().find(|f| f.file_id == parsed.file_id);
-                let fname = meta
-                    .as_ref()
-                    .map(|f| f.file_name.clone())
-                    .unwrap_or_else(|| format!("nexus-{}-{}.zip", parsed.mod_id, parsed.file_id));
+                let raw_fname = meta.as_ref().map(|f| f.file_name.as_str()).unwrap_or("");
+                let fname =
+                    nexus::safe_download_filename(raw_fname, parsed.mod_id, parsed.file_id);
                 let mgr = ModManager::open(data_dir)?;
                 let dest = mgr.downloads_dir().join(fname);
                 drop(mgr);

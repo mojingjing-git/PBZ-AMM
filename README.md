@@ -1,7 +1,7 @@
 # PBZ-AMM · Auto Mod(e) Manager for *Phantom Blade Zero*
 
 > **《影之刃零》（Phantom Blade Zero）专属开源自动 Mod 管理器**  
-> **Rust 单核心驱动 · 独立 CLI + `--json` · 内置 MCP 服务 + Agent Skill · Tauri v2 暗色武侠桌面端**  
+> **Rust 单核心驱动 · 独立 CLI + `--json` · 内置 MCP 服务 + Agent Skill · Tauri v2 双主题武侠桌面端**  
 > **开源协议**：Apache License 2.0
 
 `PBZ-AMM`（名字致敬经典的 `MAA` 反写）是一款专为《影之刃零》PC 版打造的现代开源 Mod 管理器。所有界面形态（命令行 CLI、AI Agent 的 Skill / 本地 MCP 服务、以及 Tauri v2 桌面端 GUI）均共享同一个净室原创的 Rust 核心引擎 `pbz-amm-core` 与同一份本地数据仓库。
@@ -68,22 +68,30 @@ pbz-amm mcp serve
 
 ## 快速上手（Tauri 桌面端 GUI）
 
-桌面端采用克制的暗色武侠视觉风格（玄墨底色、暗金边框、朱砂印记），与 CLI/MCP 实时共享同一 `Data` 目录与文件锁：
+桌面端提供 **「夜雨暗」（暗色玄墨）** 与 **「宣纸浅」（水墨宣纸）** 两套武侠视觉主题（顶部一键切换并持久化），与 CLI/MCP 实时共享同一 `Data` 目录、文件锁及实时操作联动流：
 
 - **五大功能视图**：
-  1. **剑匣 · 模组管理**：支持窗口全局拖入 `.zip/.7z/.rar/.pak` 或文件夹自动开启入匣预检弹窗、野生 Mod 扫描勾选接管、多配置方案（`纯净原版` / `默认配置` / 自定义）一键切换、单模组启停与旧版一键回退。
-  2. **玄机 · 前置与冲突**：实时感知 `UE4SS`、`Mods Menu (#149)`、`PBZModLoader (#113)`、`CPP Bypass (#520)`、`Outfit Framework (#903)` 及代理注入 DLL 槽位占用，展示文件与 `.pak/.utoc` 容器级冲突报告。
-  3. **藏经阁 · Nexus 工坊**：免登录检索《影之刃零》社区作品、查阅前置依赖、批量检查已装更新、一键拉取入匣（自动适配会员直连与免费账号 `nxm://` 协议）。
-  4. **残卷 · 存档时光机**：手动备注锁定快照、自动防损留底与二次确认安全回档。
-  5. **枢机 · 设置与 Agent**：绑定游戏目录、管理 Windows 系统凭据库中的 Nexus API Key、一键复制本地 MCP JSON 配置。
+  1. **已装 Mod**：支持窗口全局拖入 `.zip/.7z/.rar/.pak` 或文件夹自动开启安装预检弹窗、手动 Mod 扫描勾选接管、多配置方案（`纯净原版` / `默认配置` / 自定义）一键切换、单模组启停与旧版一键回退。
+  2. **前置与冲突**：实时感知 `UE4SS`、`Mods Menu (#149)`、`PBZModLoader (#113)`、`CPP Bypass (#520)`、`Outfit Framework (#903)` 及代理注入 DLL 槽位占用，展示文件与 `.pak/.utoc` 容器级冲突报告。
+  3. **Nexus 工坊**：免登录检索《影之刃零》社区作品、查阅前置依赖、批量检查已装更新、3 步引导绑定账号；免费账号默认复用日常浏览器免二次登录并自动监听系统下载目录/`nxm://` 接管（也可选内置 WebView2 小窗），会员支持静默直连下载。
+  4. **存档备份**：手动备注锁定快照、自动防损留底与二次确认安全恢复。
+  5. **设置与接入**：绑定游戏目录、管理 Windows 系统凭据库中的 Nexus API Key、一键复制本地 MCP JSON 配置。
+
+### 编译前提（从源码构建）
+
+- **OS**：Windows 10 / 11（64 位，桌面端需系统内置 WebView2 Runtime）
+- **Rust**：`>= 1.89`（MSVC 工具链）
+- **Node.js & pnpm**：Node `>= 20`，`pnpm >= 9`
+- **可选工具**：解压老旧 RAR5 压缩包时依赖 Windows 10/11 自带 `tar.exe` 或 `7z.exe`
 
 ```powershell
-# 构建前端静态资源并编译全工作区（生成 target\debug\pbz-amm.exe 与 pbz-amm-desktop.exe）
+# 构建前端静态资源并编译全工作区（Release 版本位于 target\release\）
 cd apps/pbz-amm-desktop
 pnpm install
-pnpm run build
+pnpm build
 cd ../..
-cargo build --workspace
+cargo test --workspace
+cargo build --release --workspace
 ```
 
 ---

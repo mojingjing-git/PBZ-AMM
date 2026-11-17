@@ -96,10 +96,35 @@ pub fn resolve_default_data_dir() -> PathBuf {
                 cursor = dir.parent();
             }
         }
-        return exe_dir.join("Data");
+        // Check if portable `<exe_dir>/Data` is writable; if installed under read-only Program Files,
+        // fall back cleanly to `%LOCALAPPDATA%\PBZ-AMM\Data`.
+        let portable_data = exe_dir.join("Data");
+        if is_dir_writable_or_creatable(&portable_data) {
+            return portable_data;
+        }
+        if let Ok(local_app) = std::env::var("LOCALAPPDATA")
+            && !local_app.trim().is_empty()
+        {
+            return PathBuf::from(local_app).join("PBZ-AMM").join("Data");
+        }
+        return portable_data;
     }
 
     PathBuf::from("Data")
+}
+
+fn is_dir_writable_or_creatable(dir: &Path) -> bool {
+    if fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    let probe = dir.join(format!(".write_probe_{}", std::process::id()));
+    match fs::OpenOptions::new().write(true).create_new(true).open(&probe) {
+        Ok(_) => {
+            let _ = fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 /// Finds the best sibling `pbz-amm.exe` path for MCP snippets & `nxm://` registration.

@@ -525,15 +525,12 @@ fn open_nexus_browser_window(
                         let api_key = nexus::load_api_key()?;
                         let files = nexus::list_mod_files(&api_key, parsed.mod_id)?;
                         let meta = files.into_iter().find(|f| f.file_id == parsed.file_id);
-                        let fname = meta
-                            .as_ref()
-                            .map(|f| f.file_name.clone())
-                            .unwrap_or_else(|| {
-                                format!("nexus-{}-{}.zip", parsed.mod_id, parsed.file_id)
-                            });
+                        let raw_fname = meta.as_ref().map(|f| f.file_name.as_str()).unwrap_or("");
+                        let fname =
+                            nexus::safe_download_filename(raw_fname, parsed.mod_id, parsed.file_id);
                         let ver = meta.map(|f| f.version);
 
-                        let mgr = ModManager::open(&shared_data_dir())?;
+                        let mgr = ModManager::open(shared_data_dir())?;
                         let dest = mgr.downloads_dir().join(fname);
                         drop(mgr);
 
@@ -600,7 +597,7 @@ fn open_nexus_browser_window(
                         .pending_meta
                         .lock()
                         .ok()
-                        .and_then(|g| g.clone())
+                        .and_then(|mut g| g.take())
                         .map(|(id, v)| (Some(id), Some(v)))
                         .unwrap_or((None, None));
                     if let Some(w) = app_dl.get_webview_window("nexus-browser") {
@@ -719,10 +716,15 @@ fn spawn_downloads_watcher(
                     .map(|s| s.to_ascii_lowercase())
                     .unwrap_or_default();
                 let exact_match = !expected_lower.is_empty() && fname_lower == expected_lower;
+                let mod_id_tag = format!("-{mod_id}-");
+                let id_match = fname_lower.contains(&mod_id_tag);
+                if !exact_match && !id_match {
+                    continue;
+                }
                 candidates.push((exact_match, path, size));
             }
 
-            candidates.sort_by(|a, b| b.0.cmp(&a.0));
+            candidates.sort_by_key(|item| std::cmp::Reverse(item.0));
             if let Some((_, path, size)) = candidates.into_iter().next() {
                 let entry = stable_sizes.entry(path.clone()).or_insert((size, 0));
                 if entry.0 == size {
@@ -836,7 +838,9 @@ async fn cmd_nexus_download_stage(
             }
 
             let mgr = ModManager::open(&data_dir)?;
-            let dest = mgr.downloads_dir().join(&chosen.file_name);
+            let safe_name =
+                nexus::safe_download_filename(&chosen.file_name, mod_id, chosen.file_id);
+            let dest = mgr.downloads_dir().join(safe_name);
             drop(mgr);
 
             nexus::download_mod_file(&api_key, mod_id, chosen.file_id, None, None, &dest)?;
@@ -872,9 +876,10 @@ fn spawn_activity_tailer(app_handle: tauri::AppHandle) {
             if let Ok(meta) = std::fs::metadata(&log_path) {
                 let len = meta.len();
                 if len < offset {
-                    // File was compacted/rotated
-                    offset = len;
-                } else if len > offset
+                    // File was compacted/rotated: rewind to 0 so newly appended lines are not skipped
+                    offset = 0;
+                }
+                if len > offset
                     && let Ok(mut file) = File::open(&log_path)
                     && file.seek(SeekFrom::Start(offset)).is_ok()
                 {

@@ -70,9 +70,21 @@ pub fn create_save_backup(
 
     fs::create_dir_all(backups_dir)?;
     let now = Utc::now();
-    let id = format!("bak-{}", now.format("%Y%m%d-%H%M%S-%3f"));
-    let archive_name = format!("{id}.zip");
-    let archive_path = backups_dir.join(&archive_name);
+    let base_id = format!("bak-{}", now.format("%Y%m%d-%H%M%S-%3f"));
+    let mut seq = 0u32;
+    let (id, archive_name, archive_path) = loop {
+        let cand_id = if seq == 0 {
+            base_id.clone()
+        } else {
+            format!("{base_id}-{seq}")
+        };
+        let cand_name = format!("{cand_id}.zip");
+        let cand_path = backups_dir.join(&cand_name);
+        if !cand_path.exists() && !records.iter().any(|r| r.id == cand_id) {
+            break (cand_id, cand_name, cand_path);
+        }
+        seq += 1;
+    };
 
     {
         let out = File::create(&archive_path)?;
@@ -234,6 +246,21 @@ pub fn restore_save_backup(
         }
     }
 
+    // Snapshot restore: clear existing save files after staging & pre-restore backup, then write the target snapshot.
+    if game.save_games_dir.is_dir() {
+        for ent in WalkDir::new(&game.save_games_dir)
+            .min_depth(1)
+            .contents_first(true)
+            .into_iter()
+            .flatten()
+        {
+            if ent.file_type().is_file() {
+                let _ = fs::remove_file(ent.path());
+            } else if ent.file_type().is_dir() {
+                let _ = fs::remove_dir(ent.path());
+            }
+        }
+    }
     fs::create_dir_all(&game.save_games_dir)?;
     for entry in WalkDir::new(&temp_extract).min_depth(1) {
         let entry = entry.map_err(|e| io::Error::other(e.to_string()))?;

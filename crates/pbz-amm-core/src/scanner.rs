@@ -225,9 +225,35 @@ fn extract_7z(source: &Path, dest_dir: &Path) -> Result<()> {
     })
 }
 
+fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    cmd
+}
+
+fn verify_no_extracted_symlinks(root: &Path, archive_path: &Path) -> Result<()> {
+    for entry in WalkDir::new(root).follow_links(false) {
+        let entry = entry.map_err(|e| AmmError::ArchiveError {
+            path: archive_path.display().to_string(),
+            reason: e.to_string(),
+        })?;
+        if entry.file_type().is_symlink() {
+            return Err(AmmError::ZipSlipDetected(format!(
+                "压缩包解压后包含危险符号链接: {}",
+                entry.path().display()
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn extract_rar(source: &Path, dest_dir: &Path) -> Result<()> {
     // Use Windows built-in System32\tar.exe (libarchive, supports RAR4 & RAR5 natively on Win10/11),
-    // falling back to 7z.exe if available.
+    // falling back to 7z.exe if available. Both enforce entry-path Zip-Slip validation before extraction.
     let sys_tar = PathBuf::from(r"C:\Windows\System32\tar.exe");
     let tar_cmd = if sys_tar.is_file() {
         sys_tar
@@ -236,32 +262,46 @@ fn extract_rar(source: &Path, dest_dir: &Path) -> Result<()> {
     };
 
     // First list entries to enforce Zip-Slip check before extraction!
-    if let Ok(list_out) = Command::new(&tar_cmd).arg("-tf").arg(source).output()
+    if let Ok(list_out) = hidden_command(&tar_cmd).arg("-tf").arg(source).output()
         && list_out.status.success()
     {
         for line in String::from_utf8_lossy(&list_out.stdout).lines() {
             sanitize_relative_path(line.trim())?;
         }
-        let ext_out = Command::new(&tar_cmd)
+        let ext_out = hidden_command(&tar_cmd)
             .arg("-xf")
             .arg(source)
             .arg("-C")
             .arg(dest_dir)
             .output()?;
         if ext_out.status.success() {
+            verify_no_extracted_symlinks(dest_dir, source)?;
             return Ok(());
         }
     }
 
-    if let Ok(seven_z) = Command::new("7z")
-        .arg("x")
-        .arg("-y")
-        .arg(format!("-o{}", dest_dir.display()))
-        .arg(source)
-        .output()
-        && seven_z.status.success()
+    if let Ok(list_7z) = hidden_command("7z").arg("l").arg("-slt").arg(source).output()
+        && list_7z.status.success()
     {
-        return Ok(());
+        for line in String::from_utf8_lossy(&list_7z.stdout).lines() {
+            if let Some(rel) = line.trim().strip_prefix("Path = ") {
+                let norm = rel.trim();
+                if norm != source.to_string_lossy() && !norm.is_empty() {
+                    sanitize_relative_path(norm)?;
+                }
+            }
+        }
+        if let Ok(seven_z) = hidden_command("7z")
+            .arg("x")
+            .arg("-y")
+            .arg(format!("-o{}", dest_dir.display()))
+            .arg(source)
+            .output()
+            && seven_z.status.success()
+        {
+            verify_no_extracted_symlinks(dest_dir, source)?;
+            return Ok(());
+        }
     }
 
     Err(AmmError::ArchiveError {
@@ -526,9 +566,24 @@ fn partition_into_variants(
     }
 
     if !has_root_files && by_top.len() >= 2 {
-        // Distinguish "2 UE4SS mods in one pack" vs "Option A / Option B variants":
-        // If each folder contains .pak/.utoc files OR shares identical inner relative filenames, they are mutually exclusive variants!
-        let all_have_paks_or_same_files = {
+        // Distinguish "2 independent UE4SS mods in one pack" (`ModA/Scripts/main.lua` + `ModB/Scripts/main.lua`)
+        // from "Option A / Option B variants" (`OptA/foo_P.pak`, `OptA/ue4ss/Mods/X/Scripts/main.lua`, `OptA/main.js`).
+        let all_are_direct_ue4ss_mods = by_top.iter().all(|(k, group)| {
+            group.iter().any(|(_, inner, _)| {
+                let sub = inner
+                    .strip_prefix(&format!("{k}/"))
+                    .unwrap_or(inner)
+                    .to_ascii_lowercase();
+                sub.starts_with("scripts/") || sub.starts_with("dlls/") || sub == "enabled.txt"
+            }) && !group.iter().any(|(_, inner, _)| {
+                let l = inner.to_ascii_lowercase();
+                l.ends_with(".pak") || l.ends_with(".utoc")
+            })
+        });
+
+        let all_have_paks_or_same_files = if all_are_direct_ue4ss_mods {
+            false
+        } else {
             let all_have_pak = by_top.values().all(|group| {
                 group.iter().any(|(_, inner, _)| {
                     let l = inner.to_ascii_lowercase();
@@ -547,8 +602,18 @@ fn partition_into_variants(
                     .collect();
                 inner_sets.push(set);
             }
-            let overlapping_names = inner_sets.len() >= 2
-                && !inner_sets[0].intersection(&inner_sets[1]).next().is_none();
+            let mut overlapping_names = false;
+            for i in 0..inner_sets.len() {
+                for j in (i + 1)..inner_sets.len() {
+                    if inner_sets[i].intersection(&inner_sets[j]).next().is_some() {
+                        overlapping_names = true;
+                        break;
+                    }
+                }
+                if overlapping_names {
+                    break;
+                }
+            }
             all_have_pak || overlapping_names
         };
 

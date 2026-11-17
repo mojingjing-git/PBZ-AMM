@@ -351,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn test_nxm_uri_parsing() {
+    fn test_nxm_uri_parsing_and_domain_validation() {
         let uri = NxmUri::parse(
             "nxm://phantombladezero/mods/149/files/9876?key=abc123XYZ&expires=1790000000&user_id=42",
         )
@@ -361,5 +361,33 @@ mod tests {
         assert_eq!(uri.file_id, 9876);
         assert_eq!(uri.key.as_deref(), Some("abc123XYZ"));
         assert_eq!(uri.expires.as_deref(), Some("1790000000"));
+
+        // Reject other games' nxm:// links
+        assert!(NxmUri::parse("nxm://skyrimspecialedition/mods/149/files/1").is_err());
+
+        // Sanitize malicious remote filenames
+        assert_eq!(
+            crate::nexus::safe_download_filename("../../evil/mod.zip", 10, 20),
+            "mod.zip"
+        );
+        assert_eq!(
+            crate::nexus::safe_download_filename("..", 10, 20),
+            "nexus-10-20.zip"
+        );
+    }
+
+    #[test]
+    fn test_multi_ue4ss_pack_not_treated_as_variants() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pack_dir = tmp.path().join("combo_pack");
+        fs::create_dir_all(pack_dir.join("ModA/Scripts")).unwrap();
+        fs::create_dir_all(pack_dir.join("ModB/Scripts")).unwrap();
+        fs::write(pack_dir.join("ModA/Scripts/main.lua"), b"-- mod A").unwrap();
+        fs::write(pack_dir.join("ModB/Scripts/main.lua"), b"-- mod B").unwrap();
+
+        let report = crate::scanner::scan_extracted_dir(&pack_dir, "combo_pack", None).unwrap();
+        assert!(!report.requires_variant_choice);
+        assert_eq!(report.variants.len(), 1);
+        assert_eq!(report.variants[0].ue4ss_mod_names.len(), 2);
     }
 }
